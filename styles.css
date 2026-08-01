@@ -689,3 +689,70 @@ body {
     .main-content { margin-left: 80px; padding: 20px; }
     .buckets-grid, .charts-grid { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+    
+    .sidebar { 
+        width: 100%; 
+        height: auto; 
+        position: relative; 
+        padding: 10px 15px; 
+        flex-direction: row; 
+        justify-content: space-between; 
+        align-items: center; 
+        border-right: none; 
+        border-bottom: 1px solid var(--border-color); 
+    }
+    
+    .brand { margin-bottom: 0; }
+    .brand-text { display: block; }
+    .brand-text p { display: none; }
+    
+    .nav-menu { 
+        flex-direction: row; 
+        overflow-x: auto; 
+        margin-left: 10px; 
+    }
+    
+    .nav-btn span { display: none; }
+    .nav-btn { padding: 8px; }
+    
+    .system-status { display: none; }
+    
+    .main-content { 
+        margin-left: 0; 
+        padding: 15px; 
+        max-width: 100vw;
+    }
+    
+    .top-header { 
+        flex-direction: column; 
+        align-items: flex-start; 
+        gap: 15px; 
+    }
+    
+    .actions-bar {
+        flex-wrap: wrap;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .results-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .search-box input {
+        width: 100%;
+    }
+}
