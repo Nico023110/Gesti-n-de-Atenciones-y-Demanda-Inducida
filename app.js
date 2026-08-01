@@ -19,9 +19,11 @@ const state = {
         pendientes: []
     },
     pagination: {
-        currentPage: 1,
-        pageSize: 50,
-        filteredRecords: []
+        all: { page: 1, records: [] },
+        cohorte: { page: 1, records: [] },
+        fuera: { page: 1, records: [] },
+        pendientes: { page: 1, records: [] },
+        pageSize: 50
     },
     programasStats: {},
     chartCobertura: null,
@@ -44,7 +46,7 @@ function initApp() {
         });
     });
 
-    // Individual Bucket Dropzones for the 3 Categories
+    // Individual Bucket Dropzones for the 3 Categories (Supports CSV, XLSX, TSV, TXT tab-delimited files & folders)
     setupDropzone('bucket-poblacion', 'file-input-poblacion', (files) => handleBucketFiles(files, 'poblacion'));
     setupDropzone('bucket-fev', 'file-input-fev', (files) => handleBucketFiles(files, 'fev'));
     setupDropzone('bucket-nominal', 'file-input-nominal', (files) => handleBucketFiles(files, 'nominal'));
@@ -53,13 +55,23 @@ function initApp() {
     document.getElementById('btn-ejecutar-cruce').addEventListener('click', runDemandaCrucePipeline);
     document.getElementById('btn-load-demo').addEventListener('click', loadDemoSimulation);
 
-    // Search and Pagination
-    document.getElementById('search-input').addEventListener('input', (e) => filterTable(e.target.value));
-    document.getElementById('btn-prev-page').addEventListener('click', () => changePage(-1));
-    document.getElementById('btn-next-page').addEventListener('click', () => changePage(1));
-    
-    // Export
-    document.getElementById('btn-export-excel').addEventListener('click', exportExcelReport);
+    // Search Box Listeners
+    setupSearch('search-input', 'all');
+    setupSearch('search-cohorte', 'cohorte');
+    setupSearch('search-fuera', 'fuera');
+    setupSearch('search-pendientes', 'pendientes');
+
+    // Pagination Listeners
+    setupPaginationControls('all', 'btn-prev-page', 'btn-next-page');
+    setupPaginationControls('cohorte', 'btn-prev-cohorte', 'btn-next-cohorte');
+    setupPaginationControls('fuera', 'btn-prev-fuera', 'btn-next-fuera');
+    setupPaginationControls('pendientes', 'btn-prev-pendientes', 'btn-next-pendientes');
+
+    // Excel Export Buttons
+    document.getElementById('btn-export-excel').addEventListener('click', () => exportExcelSubSet('all', 'Consolidado_Demanda_Inducida'));
+    document.getElementById('btn-export-cohorte').addEventListener('click', () => exportExcelSubSet('cohorte', 'Atenciones_en_Cohorte'));
+    document.getElementById('btn-export-fuera').addEventListener('click', () => exportExcelSubSet('fuera', 'Atenciones_Fuera_de_Cohorte'));
+    document.getElementById('btn-export-pendientes').addEventListener('click', () => exportExcelSubSet('pendientes', 'Actividades_Pendientes_Demanda'));
 }
 
 function setupDropzone(elementId, inputId, onFilesSelected) {
@@ -142,7 +154,6 @@ async function handleBucketFiles(files, bucketType) {
     checkCanRun();
 }
 
-// Optimized File Reader Rebuilding Truncated !ref Metadata Range for Large Excel Files (>78,000 Rows)
 function parseFileRows(file) {
     return new Promise((resolve) => {
         const ext = file.name.toLowerCase();
@@ -156,8 +167,6 @@ function parseFileRows(file) {
                     const firstSheet = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[firstSheet];
 
-                    // FIX: Re-calculate the actual maximum row range dynamically.
-                    // Many legacy DBF/Excel exports hardcode !ref to 7600 rows despite having 78k+ rows.
                     recalculateSheetRefRange(sheet);
 
                     const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
@@ -169,7 +178,6 @@ function parseFileRows(file) {
             };
             reader.readAsArrayBuffer(file);
         } else {
-            // Text-based files (.csv, .tsv, .txt)
             reader.onload = (e) => {
                 const text = e.target.result;
                 const rows = parseCSVText(text);
@@ -180,7 +188,6 @@ function parseFileRows(file) {
     });
 }
 
-// Scans all keys in sheet to find actual maxRow and fix sheet['!ref']
 function recalculateSheetRefRange(sheet) {
     if (!sheet) return;
     let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
@@ -204,14 +211,12 @@ function recalculateSheetRefRange(sheet) {
     }
 }
 
-// Multi-Delimiter CSV/TSV Parser: Auto-detects Tab (\t), Semicolon (;), Comma (,), Pipe (|)
 function parseCSVText(text) {
     if (!text || !text.trim()) return [];
 
     const lines = text.split(/\r?\n/);
     if (lines.length < 2) return [];
 
-    // Find header row (first non-empty line)
     let headerIdx = 0;
     while (headerIdx < lines.length && !lines[headerIdx].trim()) {
         headerIdx++;
@@ -220,7 +225,6 @@ function parseCSVText(text) {
 
     const firstLine = lines[headerIdx];
     
-    // Count candidate delimiters in header line
     const tabCount = (firstLine.match(/\t/g) || []).length;
     const semiCount = (firstLine.match(/;/g) || []).length;
     const commaCount = (firstLine.match(/,/g) || []).length;
@@ -281,7 +285,7 @@ function checkCanRun() {
     }
 }
 
-// Pipeline: Run Demanda Inducida Cross-Referencing on 100% Real Records
+// Pipeline: Run Demanda Inducida Cross-Referencing
 function runDemandaCrucePipeline() {
     showLoader('Ejecutando cruce de Demanda Inducida en el 100% de los registros leídos...');
     setTimeout(() => {
@@ -293,7 +297,6 @@ function runDemandaCrucePipeline() {
         state.results.pendientes = [];
         state.programasStats = {};
 
-        // Merge all real records from Población, FEV, and Nominal
         const primaryRows = state.poblacionRows.length ? state.poblacionRows : (state.fevRows.length ? state.fevRows : state.nominalRows);
 
         primaryRows.forEach((r, idx) => {
@@ -362,42 +365,66 @@ function updateDemandaResultsUI() {
     document.getElementById('kpi-pendientes').textContent = pendientesCount.toLocaleString();
 
     document.getElementById('badge-count').textContent = `${totalAll.toLocaleString()} registros`;
+    document.getElementById('badge-count-cohorte').textContent = `${cohorteCount.toLocaleString()} registros`;
+    document.getElementById('badge-count-fuera').textContent = `${fueraCount.toLocaleString()} registros`;
+    document.getElementById('badge-count-pendientes').textContent = `${pendientesCount.toLocaleString()} registros`;
+
+    // Enable Export Buttons
     document.getElementById('btn-export-excel').disabled = totalAll === 0;
+    document.getElementById('btn-export-cohorte').disabled = cohorteCount === 0;
+    document.getElementById('btn-export-fuera').disabled = fueraCount === 0;
+    document.getElementById('btn-export-pendientes').disabled = pendientesCount === 0;
 
-    state.pagination.filteredRecords = state.results.all;
-    state.pagination.currentPage = 1;
+    // Reset pagination records
+    state.pagination.all.records = state.results.all; state.pagination.all.page = 1;
+    state.pagination.cohorte.records = state.results.cohorte; state.pagination.cohorte.page = 1;
+    state.pagination.fuera.records = state.results.fuera; state.pagination.fuera.page = 1;
+    state.pagination.pendientes.records = state.results.pendientes; state.pagination.pendientes.page = 1;
 
-    renderPaginatedTable();
+    renderTabTable('all');
+    renderTabTable('cohorte');
+    renderTabTable('fuera');
+    renderTabTable('pendientes');
+
     renderCharts(cohorteCount, fueraCount, pendientesCount);
 }
 
-// Render Table with Fast Pagination (50 rows per page)
-function renderPaginatedTable() {
-    const tbody = document.getElementById('table-body');
+// Render Any Tab's Paginated Table
+function renderTabTable(tabKey) {
+    const tableBodyId = tabKey === 'all' ? 'table-body' : `table-body-${tabKey}`;
+    const pageInfoId = tabKey === 'all' ? 'page-info' : `page-info-${tabKey}`;
+    const pageNumId = tabKey === 'all' ? 'current-page-num' : `page-num-${tabKey}`;
+    const prevBtnId = tabKey === 'all' ? 'btn-prev-page' : `btn-prev-${tabKey}`;
+    const nextBtnId = tabKey === 'all' ? 'btn-next-page' : `btn-next-${tabKey}`;
+
+    const tbody = document.getElementById(tableBodyId);
+    if (!tbody) return;
     tbody.innerHTML = '';
 
-    const records = state.pagination.filteredRecords;
+    const tabState = state.pagination[tabKey];
+    const records = tabState.records;
     const pageSize = state.pagination.pageSize;
     const totalPages = Math.max(1, Math.ceil(records.length / pageSize));
-    const currentPage = Math.min(state.pagination.currentPage, totalPages);
-    state.pagination.currentPage = currentPage;
+    const currentPage = Math.min(tabState.page, totalPages);
+    tabState.page = currentPage;
 
     const startIdx = (currentPage - 1) * pageSize;
     const endIdx = Math.min(startIdx + pageSize, records.length);
     const pageRecords = records.slice(startIdx, endIdx);
 
     if (!records.length) {
+        const colSpan = tabKey === 'all' ? 8 : 7;
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" class="empty-table-msg">
+                <td colspan="${colSpan}" class="empty-table-msg">
                     <i data-lucide="folder-input"></i>
-                    <p>No se encontraron registros de atenciones.</p>
+                    <p>No hay registros disponibles para esta categoría.</p>
                 </td>
             </tr>
         `;
-        document.getElementById('page-info').textContent = 'Mostrando 0 registros';
-        document.getElementById('btn-prev-page').disabled = true;
-        document.getElementById('btn-next-page').disabled = true;
+        document.getElementById(pageInfoId).textContent = 'Mostrando 0 registros';
+        document.getElementById(prevBtnId).disabled = true;
+        document.getElementById(nextBtnId).disabled = true;
         lucide.createIcons();
         return;
     }
@@ -412,43 +439,79 @@ function renderPaginatedTable() {
             ? 'background: rgba(239, 68, 68, 0.15); color: #F87171;'
             : 'background: rgba(59, 130, 246, 0.15); color: #60A5FA;';
 
-        tr.innerHTML = `
-            <td><code>#${row.id}</code></td>
-            <td><code>${row.documento}</code></td>
-            <td><strong>${row.nombre}</strong></td>
-            <td><span class="badge" style="background: rgba(99,102,241,0.15); color: #818CF8">${row.eps}</span></td>
-            <td>${row.actividad}</td>
-            <td>${row.fecha}</td>
-            <td><span class="badge" style="${badgeCohorteStyle}">${row.estadoCohorte}</span></td>
-            <td><span class="badge" style="${badgeDemandaStyle}">${row.estadoDemanda}</span></td>
-        `;
+        if (tabKey === 'all') {
+            tr.innerHTML = `
+                <td><code>#${row.id}</code></td>
+                <td><code>${row.documento}</code></td>
+                <td><strong>${row.nombre}</strong></td>
+                <td><span class="badge" style="background: rgba(99,102,241,0.15); color: #818CF8">${row.eps}</span></td>
+                <td>${row.actividad}</td>
+                <td>${row.fecha}</td>
+                <td><span class="badge" style="${badgeCohorteStyle}">${row.estadoCohorte}</span></td>
+                <td><span class="badge" style="${badgeDemandaStyle}">${row.estadoDemanda}</span></td>
+            `;
+        } else if (tabKey === 'pendientes') {
+            tr.innerHTML = `
+                <td><code>#${row.id}</code></td>
+                <td><code>${row.documento}</code></td>
+                <td><strong>${row.nombre}</strong></td>
+                <td><span class="badge" style="background: rgba(99,102,241,0.15); color: #818CF8">${row.eps}</span></td>
+                <td>${row.actividad}</td>
+                <td>${row.fecha}</td>
+                <td><span class="badge" style="${badgeDemandaStyle}">${row.estadoDemanda}</span></td>
+            `;
+        } else {
+            tr.innerHTML = `
+                <td><code>#${row.id}</code></td>
+                <td><code>${row.documento}</code></td>
+                <td><strong>${row.nombre}</strong></td>
+                <td><span class="badge" style="background: rgba(99,102,241,0.15); color: #818CF8">${row.eps}</span></td>
+                <td>${row.actividad}</td>
+                <td>${row.fecha}</td>
+                <td><span class="badge" style="${badgeCohorteStyle}">${row.estadoCohorte}</span></td>
+            `;
+        }
         tbody.appendChild(tr);
     });
 
-    // Update Pagination Bar Controls
-    document.getElementById('page-info').textContent = `Mostrando ${(startIdx + 1).toLocaleString()} a ${endIdx.toLocaleString()} de ${records.length.toLocaleString()} registros`;
-    document.getElementById('current-page-num').textContent = `Página ${currentPage} de ${totalPages}`;
-    document.getElementById('btn-prev-page').disabled = currentPage === 1;
-    document.getElementById('btn-next-page').disabled = currentPage === totalPages;
+    document.getElementById(pageInfoId).textContent = `Mostrando ${(startIdx + 1).toLocaleString()} a ${endIdx.toLocaleString()} de ${records.length.toLocaleString()} registros`;
+    document.getElementById(pageNumId).textContent = `Página ${currentPage} de ${totalPages}`;
+    document.getElementById(prevBtnId).disabled = currentPage === 1;
+    document.getElementById(nextBtnId).disabled = currentPage === totalPages;
 }
 
-function changePage(delta) {
-    state.pagination.currentPage += delta;
-    renderPaginatedTable();
-}
-
-function filterTable(query) {
-    const q = query.toLowerCase();
-    state.pagination.filteredRecords = state.results.all.filter(row => {
-        return row.documento.toLowerCase().includes(q) ||
-               row.nombre.toLowerCase().includes(q) ||
-               row.eps.toLowerCase().includes(q) ||
-               row.actividad.toLowerCase().includes(q) ||
-               row.estadoCohorte.toLowerCase().includes(q) ||
-               row.estadoDemanda.toLowerCase().includes(q);
+function setupPaginationControls(tabKey, prevBtnId, nextBtnId) {
+    document.getElementById(prevBtnId).addEventListener('click', () => {
+        if (state.pagination[tabKey].page > 1) {
+            state.pagination[tabKey].page--;
+            renderTabTable(tabKey);
+        }
     });
-    state.pagination.currentPage = 1;
-    renderPaginatedTable();
+
+    document.getElementById(nextBtnId).addEventListener('click', () => {
+        const totalPages = Math.ceil(state.pagination[tabKey].records.length / state.pagination.pageSize);
+        if (state.pagination[tabKey].page < totalPages) {
+            state.pagination[tabKey].page++;
+            renderTabTable(tabKey);
+        }
+    });
+}
+
+function setupSearch(inputId, tabKey) {
+    document.getElementById(inputId).addEventListener('input', (e) => {
+        const q = e.target.value.toLowerCase();
+        const rawSource = tabKey === 'all' ? state.results.all : state.results[tabKey];
+        state.pagination[tabKey].records = rawSource.filter(row => {
+            return row.documento.toLowerCase().includes(q) ||
+                   row.nombre.toLowerCase().includes(q) ||
+                   row.eps.toLowerCase().includes(q) ||
+                   row.actividad.toLowerCase().includes(q) ||
+                   row.estadoCohorte.toLowerCase().includes(q) ||
+                   row.estadoDemanda.toLowerCase().includes(q);
+        });
+        state.pagination[tabKey].page = 1;
+        renderTabTable(tabKey);
+    });
 }
 
 function renderCharts(cohorte, fuera, pendientes) {
@@ -518,12 +581,12 @@ function loadDemoSimulation() {
     }, 600);
 }
 
-async function exportExcelReport() {
-    const allRecords = state.results.all;
-    if (!allRecords.length) return;
+async function exportExcelSubSet(tabKey, filePrefix) {
+    const records = tabKey === 'all' ? state.results.all : state.results[tabKey];
+    if (!records || !records.length) return;
 
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Consolidado Demanda Inducida');
+    const sheet = workbook.addWorksheet(filePrefix);
 
     sheet.columns = [
         { header: '#', key: 'id', width: 10 },
@@ -546,7 +609,7 @@ async function exportExcelReport() {
         cell.font = { bold: true, color: { argb: 'FFFFFF' } };
     });
 
-    allRecords.forEach(item => {
+    records.forEach(item => {
         sheet.addRow(item);
     });
 
@@ -554,7 +617,7 @@ async function exportExcelReport() {
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `Consolidado_Demanda_Inducida_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.download = `${filePrefix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     link.click();
 }
 

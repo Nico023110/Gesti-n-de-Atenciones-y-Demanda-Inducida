@@ -55,8 +55,8 @@
             <div class="system-status">
                 <div class="status-indicator online"></div>
                 <div class="status-info">
-                    <span class="status-title">Motor Optimizado v3</span>
-                    <span class="status-sub">Soporte Tabulaciones \t y CSV</span>
+                    <span class="status-title">Motor Operativo v4</span>
+                    <span class="status-sub">Vistas Interactivas Habilitadas</span>
                 </div>
             </div>
         </aside>
@@ -217,7 +217,7 @@
                 <section class="results-section">
                     <div class="results-header">
                         <div class="results-title">
-                            <h3><i data-lucide="table"></i> Detalle Completo de Registros</h3>
+                            <h3><i data-lucide="table"></i> Detalle Consolidado (Todos los Registros)</h3>
                             <span class="badge badge-danger" id="badge-count">0 registros</span>
                         </div>
                         <div class="results-controls">
@@ -268,28 +268,166 @@
                 </section>
             </div>
 
-            <!-- Cohorte Tab -->
+            <!-- Tab: Atenciones en Cohorte -->
             <div id="tab-cohorte" class="tab-content hidden">
-                <div class="info-card">
-                    <h2><i data-lucide="user-check"></i> Atenciones Realizadas en Cohorte</h2>
-                    <p>Representa las atenciones brindadas a pacientes pertenecientes a las cohortes priorizadas de la EAPB.</p>
-                </div>
+                <section class="results-section">
+                    <div class="results-header">
+                        <div class="results-title">
+                            <h3><i data-lucide="user-check" style="color: #34D399"></i> Atenciones Realizadas en Cohorte</h3>
+                            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34D399" id="badge-count-cohorte">0 registros</span>
+                        </div>
+                        <div class="results-controls">
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-cohorte" placeholder="Buscar en cohorte...">
+                            </div>
+                            <button class="btn btn-success" id="btn-export-cohorte" disabled>
+                                <i data-lucide="download"></i> Exportar Cohorte Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>DOCUMENTO</th>
+                                    <th>NOMBRE DEL AFILIADO</th>
+                                    <th>EAPB / EPS</th>
+                                    <th>ACTIVIDAD REALIZADA</th>
+                                    <th>FECHA ATENCIÓN</th>
+                                    <th>ESTADO COHORTE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body-cohorte">
+                                <tr>
+                                    <td colspan="7" class="empty-table-msg">
+                                        <i data-lucide="folder-input"></i>
+                                        <p>No hay registros en Cohorte. Ejecuta el cruce o carga la simulación demo.</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-bar">
+                        <span id="page-info-cohorte">Mostrando 0 registros</span>
+                        <div class="pagination-controls">
+                            <button class="btn btn-secondary btn-sm" id="btn-prev-cohorte" disabled>Anterior</button>
+                            <span id="page-num-cohorte">Página 1</span>
+                            <button class="btn btn-secondary btn-sm" id="btn-next-cohorte" disabled>Siguiente</button>
+                        </div>
+                    </div>
+                </section>
             </div>
 
-            <!-- Fuera Tab -->
+            <!-- Tab: Fuera de Cohorte -->
             <div id="tab-fuera" class="tab-content hidden">
-                <div class="info-card">
-                    <h2><i data-lucide="user-plus"></i> Atenciones Realizadas Fuera de Cohorte</h2>
-                    <p>Registros de atenciones a pacientes no incluidos inicialmente en la cohorte nominal de la EAPB ("Atenciones de más").</p>
-                </div>
+                <section class="results-section">
+                    <div class="results-header">
+                        <div class="results-title">
+                            <h3><i data-lucide="user-plus" style="color: #C084FC"></i> Atenciones Realizadas Fuera de Cohorte ("Atenciones de Más")</h3>
+                            <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #C084FC" id="badge-count-fuera">0 registros</span>
+                        </div>
+                        <div class="results-controls">
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-fuera" placeholder="Buscar fuera de cohorte...">
+                            </div>
+                            <button class="btn btn-success" id="btn-export-fuera" disabled>
+                                <i data-lucide="download"></i> Exportar Fuera Cohorte Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>DOCUMENTO</th>
+                                    <th>NOMBRE DEL AFILIADO</th>
+                                    <th>EAPB / EPS</th>
+                                    <th>ACTIVIDAD REALIZADA</th>
+                                    <th>FECHA ATENCIÓN</th>
+                                    <th>ESTADO COHORTE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body-fuera">
+                                <tr>
+                                    <td colspan="7" class="empty-table-msg">
+                                        <i data-lucide="folder-input"></i>
+                                        <p>No hay registros fuera de cohorte. Ejecuta el cruce o carga la simulación demo.</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-bar">
+                        <span id="page-info-fuera">Mostrando 0 registros</span>
+                        <div class="pagination-controls">
+                            <button class="btn btn-secondary btn-sm" id="btn-prev-fuera" disabled>Anterior</button>
+                            <span id="page-num-fuera">Página 1</span>
+                            <button class="btn btn-secondary btn-sm" id="btn-next-fuera" disabled>Siguiente</button>
+                        </div>
+                    </div>
+                </section>
             </div>
 
-            <!-- Pendientes Tab -->
+            <!-- Tab: Actividades Pendientes -->
             <div id="tab-pendientes" class="tab-content hidden">
-                <div class="info-card">
-                    <h2><i data-lucide="clock"></i> Actividades Pendientes por Demanda Inducida</h2>
-                    <p>Listado de actividades de protección específica y detección temprana pendientes por realizar a los afiliados.</p>
-                </div>
+                <section class="results-section">
+                    <div class="results-header">
+                        <div class="results-title">
+                            <h3><i data-lucide="clock" style="color: #F87171"></i> Actividades Pendientes por Demanda Inducida</h3>
+                            <span class="badge badge-danger" id="badge-count-pendientes">0 registros</span>
+                        </div>
+                        <div class="results-controls">
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-pendientes" placeholder="Buscar actividades pendientes...">
+                            </div>
+                            <button class="btn btn-success" id="btn-export-pendientes" disabled>
+                                <i data-lucide="download"></i> Exportar Pendientes Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>DOCUMENTO</th>
+                                    <th>NOMBRE DEL AFILIADO</th>
+                                    <th>EAPB / EPS</th>
+                                    <th>ACTIVIDAD PENDIENTE</th>
+                                    <th>FECHA LÍMITE / PROGRAMADA</th>
+                                    <th>ESTADO DEMANDA</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body-pendientes">
+                                <tr>
+                                    <td colspan="7" class="empty-table-msg">
+                                        <i data-lucide="folder-input"></i>
+                                        <p>No hay actividades pendientes. Ejecuta el cruce o carga la simulación demo.</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-bar">
+                        <span id="page-info-pendientes">Mostrando 0 registros</span>
+                        <div class="pagination-controls">
+                            <button class="btn btn-secondary btn-sm" id="btn-prev-pendientes" disabled>Anterior</button>
+                            <span id="page-num-pendientes">Página 1</span>
+                            <button class="btn btn-secondary btn-sm" id="btn-next-pendientes" disabled>Siguiente</button>
+                        </div>
+                    </div>
+                </section>
             </div>
         </main>
     </div>
