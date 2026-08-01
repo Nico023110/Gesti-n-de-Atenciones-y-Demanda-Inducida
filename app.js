@@ -147,54 +147,65 @@ async function handleBucketFiles(files, bucketType) {
     checkCanRun();
 }
 
-// 🚀 ROBUST PARSER: Uses ExcelJS for .xlsx to bypass SheetJS !ref row limits, fallbacks to SheetJS for .xls, and native JS for CSV/TSV
+// 🚀 ALL-WORKSHEETS MULTI-TAB PARSER: Iterates over ALL worksheets in the Excel file to read 100% of rows
 async function parseFileRows(file) {
     const ext = file.name.toLowerCase();
 
     if (ext.endsWith('.xlsx')) {
         try {
-            // Use ExcelJS for .xlsx files. It iterates rows directly and ignores corrupt !ref limits.
             const arrayBuffer = await file.arrayBuffer();
             const workbook = new ExcelJS.Workbook();
             await workbook.xlsx.load(arrayBuffer);
             
-            const worksheet = workbook.worksheets[0];
-            const rows = [];
-            const headers = [];
-            let headerParsed = false;
+            let allRows = [];
             
-            worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-                const values = row.values;
-                // row.values is 1-indexed array in ExcelJS [empty, col1, col2...]
-                if (!headerParsed) {
-                    for (let i = 1; i < values.length; i++) {
-                        headers.push(values[i] ? values[i].toString().trim() : `Col_${i}`);
-                    }
-                    headerParsed = true;
-                } else {
-                    const rowObj = {};
-                    for (let i = 1; i <= headers.length; i++) {
-                        const header = headers[i - 1];
-                        let val = values[i];
-                        
-                        if (val !== null && val !== undefined) {
-                            if (val.richText) {
-                                val = val.richText.map(rt => rt.text).join('');
-                            } else if (val instanceof Date) {
-                                val = val.toISOString().slice(0, 10);
-                            } else if (typeof val === 'object' && val.result !== undefined) {
-                                // Formula result
-                                val = val.result;
+            // Loop through ALL worksheets in the workbook (e.g. multiple tabs for IPS centers, communes, or cohorts)
+            workbook.worksheets.forEach(worksheet => {
+                if (!worksheet || worksheet.rowCount <= 1) return;
+                
+                const headers = [];
+                let headerParsed = false;
+                
+                worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+                    const values = row.values;
+                    if (!headerParsed) {
+                        for (let i = 1; i < values.length; i++) {
+                            headers.push(values[i] ? values[i].toString().trim() : `Col_${i}`);
+                        }
+                        headerParsed = true;
+                    } else {
+                        const rowObj = {};
+                        let hasData = false;
+                        for (let i = 1; i <= headers.length; i++) {
+                            const header = headers[i - 1];
+                            let val = values[i];
+                            
+                            if (val !== null && val !== undefined) {
+                                if (val.richText) {
+                                    val = val.richText.map(rt => rt.text).join('');
+                                } else if (val instanceof Date) {
+                                    val = val.toISOString().slice(0, 10);
+                                } else if (typeof val === 'object' && val.result !== undefined) {
+                                    val = val.result;
+                                }
+                                val = val.toString().trim();
+                                if (val) hasData = true;
+                                rowObj[header] = val;
+                            } else {
+                                rowObj[header] = '';
                             }
-                            rowObj[header] = val.toString().trim();
-                        } else {
-                            rowObj[header] = '';
+                        }
+                        if (hasData) {
+                            allRows.push(rowObj);
                         }
                     }
-                    rows.push(rowObj);
-                }
+                });
             });
-            return rows;
+
+            if (allRows.length > 0) return allRows;
+
+            // Fallback to SheetJS multi-sheet reader if ExcelJS returned empty
+            return parseWithSheetJS(file);
         } catch (err) {
             console.error('ExcelJS parse error, falling back to SheetJS:', err);
             return parseWithSheetJS(file);
@@ -213,6 +224,7 @@ async function parseFileRows(file) {
     }
 }
 
+// Multi-Sheet SheetJS Fallback Reader
 function parseWithSheetJS(file) {
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -220,30 +232,37 @@ function parseWithSheetJS(file) {
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                const firstSheet = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[firstSheet];
+                let allRows = [];
 
-                // Attempt to fix !ref range metadata just in case
-                let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
-                let hasCells = false;
-                for (let key in sheet) {
-                    if (key[0] === '!') continue;
-                    const cell = XLSX.utils.decode_cell(key);
-                    hasCells = true;
-                    if (cell.r < minRow) minRow = cell.r;
-                    if (cell.r > maxRow) maxRow = cell.r;
-                    if (cell.c < minCol) minCol = cell.c;
-                    if (cell.c > maxCol) maxCol = cell.c;
-                }
-                if (hasCells) {
-                    sheet['!ref'] = XLSX.utils.encode_range({
-                        s: { r: minRow, c: minCol },
-                        e: { r: maxRow, c: maxCol }
-                    });
-                }
+                workbook.SheetNames.forEach(sheetName => {
+                    const sheet = workbook.Sheets[sheetName];
+                    if (!sheet) return;
 
-                const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-                resolve(rows);
+                    let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
+                    let hasCells = false;
+                    for (let key in sheet) {
+                        if (key[0] === '!') continue;
+                        const cell = XLSX.utils.decode_cell(key);
+                        hasCells = true;
+                        if (cell.r < minRow) minRow = cell.r;
+                        if (cell.r > maxRow) maxRow = cell.r;
+                        if (cell.c < minCol) minCol = cell.c;
+                        if (cell.c > maxCol) maxCol = cell.c;
+                    }
+                    if (hasCells) {
+                        sheet['!ref'] = XLSX.utils.encode_range({
+                            s: { r: minRow, c: minCol },
+                            e: { r: maxRow, c: maxCol }
+                        });
+                    }
+
+                    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+                    if (rows && rows.length) {
+                        allRows = allRows.concat(rows);
+                    }
+                });
+
+                resolve(allRows);
             } catch (err) {
                 console.error('SheetJS parse error:', err);
                 resolve([]);
