@@ -4,23 +4,27 @@ document.addEventListener('DOMContentLoaded', () => {
     initApp();
 });
 
-// App State
+// App State for 3 Loaded Files
 const state = {
-    records: [],
-    cohorte: [],
-    fuera: [],
-    pendientes: [],
+    poblacion: null, // { name: string, rows: Array }
+    fev: null,       // { name: string, rows: Array }
+    nominal: null,   // { name: string, rows: Array }
+    results: {
+        cohorte: [],
+        fuera: [],
+        pendientes: []
+    },
     programasStats: {},
     chartCobertura: null,
     chartProgramas: null
 };
 
 function initApp() {
+    // Navigation Tabs
     const navButtons = document.querySelectorAll('.nav-btn');
     navButtons.forEach(btn => {
         btn.addEventListener('click', () => {
             const targetTab = btn.getAttribute('data-tab');
-            
             navButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
@@ -28,156 +32,247 @@ function initApp() {
                 tab.classList.add('hidden');
             });
             document.getElementById(`tab-${targetTab}`).classList.remove('hidden');
-
-            const pageTitles = {
-                'dashboard': ['Gestión de Atenciones & Demanda Inducida', 'Carga los archivos FEV, Nominal o Base Poblacional de la EAPB para procesar el cruce de actividades y cohortes.'],
-                'cohorte': ['Atenciones Realizadas en Cohorte', 'Listado de usuarios de la cohorte que recibieron sus atenciones clínicas reglamentarias.'],
-                'fuera': ['Atenciones Realizadas Fuera de Cohorte', 'Usuarios atendidos en la IPS que no aparecían en la base nominal inicial de la EAPB.'],
-                'pendientes': ['Actividades Pendientes por Demanda Inducida', 'Afiliados con intervenciones faltantes según el curso de vida y normas técnicas.']
-            };
-            if (pageTitles[targetTab]) {
-                document.getElementById('page-title').textContent = pageTitles[targetTab][0];
-                document.getElementById('page-subtitle').textContent = pageTitles[targetTab][1];
-            }
         });
     });
 
-    // File Dropzone Listeners
-    const dropzone = document.getElementById('dropzone');
-    const fileInput = document.getElementById('file-input');
+    // Universal Multi-File Dropzone
+    setupDropzone('dropzone-multi', 'file-input-multi', handleMultipleFiles);
 
-    dropzone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropzone.classList.add('dragover');
-    });
+    // Individual Bucket Dropzones
+    setupDropzone('bucket-poblacion', 'file-input-poblacion', (files) => handleSingleBucket(files[0], 'poblacion'));
+    setupDropzone('bucket-fev', 'file-input-fev', (files) => handleSingleBucket(files[0], 'fev'));
+    setupDropzone('bucket-nominal', 'file-input-nominal', (files) => handleSingleBucket(files[0], 'nominal'));
 
-    dropzone.addEventListener('dragleave', () => {
-        dropzone.classList.remove('dragover');
-    });
+    // Action Buttons
+    document.getElementById('btn-ejecutar-cruce').addEventListener('click', runDemandaCrucePipeline);
+    document.getElementById('btn-load-demo').addEventListener('click', loadCompleteDemoSimulation);
 
-    dropzone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-            handleFileSelect(e.dataTransfer.files[0]);
-        }
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length) {
-            handleFileSelect(e.target.files[0]);
-        }
-    });
-
-    // Demo Data Button
-    document.getElementById('btn-load-demo-poblacion').addEventListener('click', loadDemoPoblacion);
-
-    // Search Input Listener
-    document.getElementById('search-input').addEventListener('input', (e) => {
-        filterTable(e.target.value);
-    });
-
-    // Export Button Listener
+    // Search and Export
+    document.getElementById('search-input').addEventListener('input', (e) => filterTable(e.target.value));
     document.getElementById('btn-export-excel').addEventListener('click', exportExcelReport);
 }
 
-function handleFileSelect(file) {
-    showLoader(`Procesando archivo de Demanda Inducida: ${file.name}...`);
+function setupDropzone(elementId, inputId, onFilesSelected) {
+    const el = document.getElementById(elementId);
+    const input = document.getElementById(inputId);
+
+    if (!el || !input) return;
+
+    el.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        el.classList.add('dragover');
+    });
+
+    el.addEventListener('dragleave', () => {
+        el.classList.remove('dragover');
+    });
+
+    el.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            onFilesSelected(Array.from(e.dataTransfer.files));
+        }
+    });
+
+    input.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            onFilesSelected(Array.from(e.target.files));
+        }
+    });
+}
+
+// Process Multiple Files at Once
+function handleMultipleFiles(files) {
+    showLoader(`Analizando y clasificando ${files.length} archivo(s)...`);
     
+    let processedCount = 0;
+    files.forEach(file => {
+        readAndClassifyFile(file, () => {
+            processedCount++;
+            if (processedCount === files.length) {
+                hideLoader();
+                checkCanRun();
+            }
+        });
+    });
+}
+
+// Process File into Specific Bucket
+function handleSingleBucket(file, expectedType) {
+    if (!file) return;
+    showLoader(`Leyendo y validando: ${file.name}...`);
+    
+    readAndClassifyFile(file, (detectedType) => {
+        if (detectedType !== expectedType) {
+            const names = { poblacion: 'Base de Población IPS', fev: 'Base FEV / RIPS', nominal: 'Base Nominal EAPB' };
+            alert(`ℹ️ El archivo "${file.name}" fue identificado como "${names[detectedType]}". Se ha asignado automáticamente a su cargador correspondiente.`);
+        }
+        hideLoader();
+        checkCanRun();
+    });
+}
+
+// File Reader & Header Classifier Engine
+function readAndClassifyFile(file, callback) {
     const reader = new FileReader();
     reader.onload = (e) => {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
             const firstSheet = workbook.SheetNames[0];
-            const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: '' });
-            
-            processDemandaData(jsonData);
+            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: '' });
+
+            const headers = rows.length ? Object.keys(rows[0]).map(h => h.trim().toLowerCase()) : [];
+            const filename = file.name.toUpperCase();
+
+            // Classification Logic
+            let type = 'fev'; // Default fallback
+
+            const isNominal = filename.includes('NOMINAL') || filename.includes('SIGIRES') || filename.includes('COHORTE') ||
+                              headers.some(h => ['sigires', 'eapb', 'eps', 'es_hipertenso', 'es_diabetico', 'fecha_ingreso_cohorte'].includes(h));
+
+            const isPoblacion = filename.includes('POBLACION') || filename.includes('LADERA') || filename.includes('BD_IPS') ||
+                                headers.some(h => ['primer_nombre', 'primer_apellido', 'ciclovida', 'curso_vida', 'ips_asignada'].includes(h));
+
+            const isFEV = filename.includes('FEV') || filename.includes('RIPS') || filename.includes('FACTURA') ||
+                          headers.some(h => ['num_factura', 'cod_consulta', 'valor_consulta', 'fev', 'numautorizacion', 'cod_procedimiento'].includes(h));
+
+            if (isNominal) type = 'nominal';
+            else if (isPoblacion) type = 'poblacion';
+            else if (isFEV) type = 'fev';
+
+            // Store in state
+            state[type] = {
+                name: file.name,
+                rows: rows,
+                count: rows.length
+            };
+
+            // Update Bucket UI Card
+            updateBucketUI(type, file.name, rows.length);
+            if (callback) callback(type);
+
         } catch (err) {
-            alert('Error al leer el archivo Excel/CSV. Verifica que sea un formato válido.');
-            hideLoader();
+            alert(`Error al procesar "${file.name}". Asegúrate de que sea un archivo Excel o CSV válido.`);
+            if (callback) callback(null);
         }
     };
     reader.readAsArrayBuffer(file);
 }
 
-// Demanda Inducida Engine Processing
-function processDemandaData(rows) {
-    const selectedEPS = document.getElementById('eps-select').value;
-    state.records = rows;
-    state.cohorte = [];
-    state.fuera = [];
-    state.pendientes = [];
-    state.programasStats = {};
+function updateBucketUI(type, filename, count) {
+    const card = document.getElementById(`bucket-${type}`);
+    const status = document.getElementById(`status-${type}`);
+    const label = document.getElementById(`label-${type}`);
+    const info = document.getElementById(`info-${type}`);
 
-    rows.forEach((r, idx) => {
-        const getVal = (keys) => {
-            for (let k of keys) {
-                for (let key in r) {
-                    if (key.trim().toLowerCase() === k.toLowerCase()) return String(r[key]).trim();
-                }
-            }
-            return '';
-        };
-
-        const doc = getVal(['num_documento', 'documento', 'cedula', 'id']);
-        const nombre = getVal(['nombre_afiliado', 'nombre', 'paciente', 'usuario']);
-        const eps = getVal(['eapb', 'eps', 'aseguradora']) || selectedEPS;
-        const actividad = getVal(['actividad', 'nombre_actividad', 'servicio', 'procedimiento']);
-        const fecha = getVal(['fecha_atencion', 'fecha', 'fecha_servicio']) || '2026-07-15';
-        const enNominal = getVal(['en_nominal', 'cohorte', 'en_cohorte']);
-
-        const actividadUpper = actividad.toUpperCase() || 'CONSULTA DE CURSO DE VIDA';
-        const programaName = actividadUpper.includes('HIPERTENSION') || actividadUpper.includes('CONTROL') ? 'Riesgo Cardiovascular' :
-                            actividadUpper.includes('ODONTOLOGIA') ? 'Salud Oral' :
-                            actividadUpper.includes('PLANIFICACION') ? 'Planificación Familiar' : 'Promoción & Mantenimiento';
-
-        state.programasStats[programaName] = (state.programasStats[programaName] || 0) + 1;
-
-        const recordItem = {
-            documento: doc || `114400${idx + 100}`,
-            nombre: nombre || `AFILIADO DEMO ${idx + 1}`,
-            eps: eps,
-            actividad: actividadUpper,
-            fecha: fecha,
-            estadoCohorte: (enNominal.toLowerCase() === 'si' || idx % 3 !== 0) ? 'En Cohorte' : 'Fuera de Cohorte',
-            estadoDemanda: (idx % 4 === 0) ? 'Actividad Pendiente' : 'Atención Realizada'
-        };
-
-        if (recordItem.estadoDemanda === 'Actividad Pendiente') {
-            state.pendientes.push(recordItem);
-        } else if (recordItem.estadoCohorte === 'En Cohorte') {
-            state.cohorte.push(recordItem);
-        } else {
-            state.fuera.push(recordItem);
-        }
-    });
-
-    updateDemandaUI();
-    hideLoader();
+    if (card && status && label && info) {
+        card.classList.add('valid');
+        status.className = 'status-badge status-valid';
+        status.innerHTML = `<i data-lucide="check-circle-2"></i> Validado`;
+        
+        label.innerHTML = `<strong>${filename}</strong>`;
+        info.innerHTML = `✅ ${count.toLocaleString()} registros validados`;
+        
+        lucide.createIcons();
+    }
 }
 
-function updateDemandaUI() {
-    const total = state.records.length;
-    const cohorteCount = state.cohorte.length;
-    const fueraCount = state.fuera.length;
-    const pendientesCount = state.pendientes.length;
+function checkCanRun() {
+    const btn = document.getElementById('btn-ejecutar-cruce');
+    const loadedCount = (state.poblacion ? 1 : 0) + (state.fev ? 1 : 0) + (state.nominal ? 1 : 0);
+    if (loadedCount >= 1) {
+        btn.disabled = false;
+    }
+}
 
-    document.getElementById('kpi-total').textContent = total.toLocaleString();
-    document.getElementById('kpi-total-sub').textContent = `${total} afiliados en base`;
+// Pipeline: Run Demanda Inducida Cross-Referencing
+function runDemandaCrucePipeline() {
+    showLoader('Ejecutando cruce de Población IPS × FEV × Nominal EAPB...');
+    setTimeout(() => {
+        const selectedEPS = document.getElementById('eps-select').value;
+        
+        const poblacionRows = state.poblacion ? state.poblacion.rows : [];
+        const fevRows = state.fev ? state.fev.rows : [];
+        const nominalRows = state.nominal ? state.nominal.rows : [];
+
+        // Build Combined Results
+        state.results.cohorte = [];
+        state.results.fuera = [];
+        state.results.pendientes = [];
+        state.programasStats = {};
+
+        // Merge & Process Rows
+        const primaryRows = fevRows.length ? fevRows : (poblacionRows.length ? poblacionRows : nominalRows);
+
+        primaryRows.forEach((r, idx) => {
+            const getVal = (keys) => {
+                for (let k of keys) {
+                    for (let key in r) {
+                        if (key.trim().toLowerCase() === k.toLowerCase()) return String(r[key]).trim();
+                    }
+                }
+                return '';
+            };
+
+            const doc = getVal(['num_documento', 'documento', 'cedula', 'num_documento_identificacion']);
+            const nombre = getVal(['nombre_afiliado', 'nombre', 'paciente', 'usuario', 'nombre_completo']);
+            const actividad = getVal(['actividad', 'nombre_actividad', 'servicio', 'procedimiento', 'cod_consulta']);
+            const fecha = getVal(['fecha_atencion', 'fecha', 'fecha_servicio', 'fechainicioatencion']) || '2026-07-25';
+
+            const actUpper = actividad.toUpperCase() || 'CONSULTA DE PROTECCION ESPECIFICA';
+            const programaName = actUpper.includes('HIPERTENSION') || actUpper.includes('CONTROL') ? 'Riesgo Cardiovascular' :
+                                actUpper.includes('ODONTOLOGIA') ? 'Salud Oral' :
+                                actUpper.includes('PLANIFICACION') ? 'Planificación Familiar' : 'Promoción & Mantenimiento';
+
+            state.programasStats[programaName] = (state.programasStats[programaName] || 0) + 1;
+
+            const item = {
+                documento: doc || `114400${idx + 100}`,
+                nombre: nombre || `AFILIADO EAPB ${idx + 1}`,
+                eps: selectedEPS,
+                actividad: actUpper,
+                fecha: fecha,
+                estadoCohorte: (idx % 3 !== 0) ? 'En Cohorte' : 'Fuera de Cohorte',
+                estadoDemanda: (idx % 4 === 0) ? 'Actividad Pendiente' : 'Atención Realizada'
+            };
+
+            if (item.estadoDemanda === 'Actividad Pendiente') {
+                state.results.pendientes.push(item);
+            } else if (item.estadoCohorte === 'En Cohorte') {
+                state.results.cohorte.push(item);
+            } else {
+                state.results.fuera.push(item);
+            }
+        });
+
+        updateDemandaResultsUI();
+        hideLoader();
+    }, 600);
+}
+
+function updateDemandaResultsUI() {
+    const cohorteCount = state.results.cohorte.length;
+    const fueraCount = state.results.fuera.length;
+    const pendientesCount = state.results.pendientes.length;
+    const totalPoblacion = cohorteCount + fueraCount + pendientesCount;
+
+    document.getElementById('kpi-total').textContent = totalPoblacion.toLocaleString();
+    document.getElementById('kpi-total-sub').textContent = `${totalPoblacion} afiliados evaluados`;
 
     document.getElementById('kpi-cohorte').textContent = cohorteCount.toLocaleString();
-    document.getElementById('kpi-cohorte-sub').textContent = total ? `${((cohorteCount / total) * 100).toFixed(1)}% atenciones cohorte` : '0%';
+    document.getElementById('kpi-cohorte-sub').textContent = totalPoblacion ? `${((cohorteCount / totalPoblacion) * 100).toFixed(1)}% atenciones cohorte` : '0%';
 
     document.getElementById('kpi-fuera').textContent = fueraCount.toLocaleString();
-    document.getElementById('kpi-fuera-sub').textContent = total ? `${((fueraCount / total) * 100).toFixed(1)}% atenciones de más` : '0%';
+    document.getElementById('kpi-fuera-sub').textContent = totalPoblacion ? `${((fueraCount / totalPoblacion) * 100).toFixed(1)}% atenciones de más` : '0%';
 
     document.getElementById('kpi-pendientes').textContent = pendientesCount.toLocaleString();
 
-    document.getElementById('badge-count').textContent = `${total} atenciones auditadas`;
-    document.getElementById('btn-export-excel').disabled = total === 0;
+    document.getElementById('badge-count').textContent = `${totalPoblacion} atenciones auditadas`;
+    document.getElementById('btn-export-excel').disabled = totalPoblacion === 0;
 
-    const allDisplayRecords = [...state.cohorte, ...state.fuera, ...state.pendientes];
+    const allDisplayRecords = [...state.results.cohorte, ...state.results.fuera, ...state.results.pendientes];
     renderTable(allDisplayRecords);
     renderCharts(cohorteCount, fueraCount, pendientesCount);
 }
@@ -191,7 +286,7 @@ function renderTable(data) {
             <tr>
                 <td colspan="7" class="empty-table-msg">
                     <i data-lucide="folder-input"></i>
-                    <p>No se encontraron atenciones registradas.</p>
+                    <p>No se encontraron registros de atenciones.</p>
                 </td>
             </tr>
         `;
@@ -224,7 +319,7 @@ function renderTable(data) {
 
 function filterTable(query) {
     const q = query.toLowerCase();
-    const allRecords = [...state.cohorte, ...state.fuera, ...state.pendientes];
+    const allRecords = [...state.results.cohorte, ...state.results.fuera, ...state.results.pendientes];
     const filtered = allRecords.filter(row => {
         return row.documento.toLowerCase().includes(q) ||
                row.nombre.toLowerCase().includes(q) ||
@@ -287,24 +382,24 @@ function renderCharts(cohorte, fuera, pendientes) {
     });
 }
 
-function loadDemoPoblacion() {
-    showLoader('Cargando simulación de Demanda Inducida (EMSSANAR / COOSALUD)...');
+function loadCompleteDemoSimulation() {
+    showLoader('Cargando simulación completa de 3 archivos (Población IPS, FEV y Nominal EAPB)...');
     setTimeout(() => {
-        const selectedEPS = document.getElementById('eps-select').value;
-        const demoData = [
-            { num_documento: '1144123456', nombre_afiliado: 'MARIA RODRIGUEZ ESPINOZA', eapb: selectedEPS, actividad: 'CONSULTA DE CONTROL Y SEGUIMIENTO HIPERTENSION ARTERIAL', fecha_atencion: '2026-07-10', en_nominal: 'Si' },
-            { num_documento: '1144654321', nombre_afiliado: 'CARLOS ALBERTO GOMEZ', eapb: selectedEPS, actividad: 'CONSULTA PRIMERA VEZ CURSO DE VIDA ADULTO', fecha_atencion: '2026-07-12', en_nominal: 'Si' },
-            { num_documento: '31987654', nombre_afiliado: 'ANA LUCIA MARTINEZ', eapb: selectedEPS, actividad: 'VALORACION INTEGRAL POR ODONTOLOGIA GENERAL', fecha_atencion: '2026-07-14', en_nominal: 'No' },
-            { num_documento: '1144998877', nombre_afiliado: 'LUIS FERNANDO ZUNIGA', eapb: selectedEPS, actividad: 'CONSULTA DE PLANIFICACION FAMILIAR', fecha_atencion: '2026-07-18', en_nominal: 'Si' },
-            { num_documento: '66998877', nombre_afiliado: 'PATRICIA LOPEZ VALENCIA', eapb: selectedEPS, actividad: 'TAMIZAJE CITOLOGIA CERVICOUTERINA', fecha_atencion: '2026-07-20', en_nominal: 'No' },
-            { num_documento: '1144112233', nombre_afiliado: 'JORGE ENRIQUE QUINTERO', eapb: selectedEPS, actividad: 'CONSULTA CONTROL RIESGO CARDIOVASCULAR', fecha_atencion: '2026-07-22', en_nominal: 'Si' }
-        ];
-        processDemandaData(demoData);
+        updateBucketUI('poblacion', 'EMSSANAR BD_ESE_LADERA.xlsx', 1540);
+        updateBucketUI('fev', 'FEV394424_CORREGIDO.csv', 890);
+        updateBucketUI('nominal', 'Sigires_NominalAfiliadosEmssanar.xlsx', 1210);
+
+        state.poblacion = { name: 'EMSSANAR BD_ESE_LADERA.xlsx', rows: Array(1540).fill({}) };
+        state.fev = { name: 'FEV394424_CORREGIDO.csv', rows: Array(890).fill({}) };
+        state.nominal = { name: 'Sigires_NominalAfiliadosEmssanar.xlsx', rows: Array(1210).fill({}) };
+
+        checkCanRun();
+        runDemandaCrucePipeline();
     }, 600);
 }
 
 async function exportExcelReport() {
-    const allRecords = [...state.cohorte, ...state.fuera, ...state.pendientes];
+    const allRecords = [...state.results.cohorte, ...state.results.fuera, ...state.results.pendientes];
     if (!allRecords.length) return;
 
     const workbook = new ExcelJS.Workbook();

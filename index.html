@@ -36,7 +36,7 @@
             <nav class="nav-menu">
                 <button class="nav-btn active" data-tab="dashboard">
                     <i data-lucide="layout-dashboard"></i>
-                    <span>Panel Principal</span>
+                    <span>Carga & Cruce General</span>
                 </button>
                 <button class="nav-btn" data-tab="cohorte">
                     <i data-lucide="user-check"></i>
@@ -55,8 +55,8 @@
             <div class="system-status">
                 <div class="status-indicator online"></div>
                 <div class="status-info">
-                    <span class="status-title">Motor Operativo</span>
-                    <span class="status-sub">Demanda Inducida Vercel</span>
+                    <span class="status-title">Motor de Cruce v2</span>
+                    <span class="status-sub">Validación FEV / Pob / Nom</span>
                 </div>
             </div>
         </aside>
@@ -66,8 +66,8 @@
             <!-- Header Banner -->
             <header class="top-header">
                 <div class="header-titles">
-                    <h1 id="page-title">Gestión de Atenciones & Demanda Inducida</h1>
-                    <p id="page-subtitle">Carga los archivos FEV, Nominal o Base Poblacional de la EAPB para procesar el cruce de actividades y cohortes.</p>
+                    <h1 id="page-title">Carga de Bases & Cruce de Demanda Inducida</h1>
+                    <p id="page-subtitle">Carga los archivos FEV, Población IPS y Nominal EAPB por separado o arrastra varios archivos a la vez.</p>
                 </div>
                 <div class="header-actions">
                     <div class="eps-selector-wrapper">
@@ -85,35 +85,96 @@
 
             <!-- Dashboard View -->
             <div id="tab-dashboard" class="tab-content active">
-                <!-- Dropzone Area -->
+                
+                <!-- Multi-file Dropzone Universal -->
                 <section class="upload-section">
-                    <div class="dropzone" id="dropzone">
-                        <input type="file" id="file-input" accept=".xlsx, .xls, .csv" multiple hidden>
+                    <div class="dropzone dropzone-main" id="dropzone-multi">
+                        <input type="file" id="file-input-multi" accept=".xlsx, .xls, .csv" multiple hidden>
                         <div class="dropzone-content">
                             <div class="upload-icon-wrapper">
-                                <i data-lucide="file-spreadsheets"></i>
+                                <i data-lucide="upload-cloud"></i>
                             </div>
-                            <h3>Arrastra y suelta tu archivo FEV, Nominal o Población aquí</h3>
-                            <p>Soporta bases de datos FEV (Facturación), Afiliados Nominales y Población IPS (`.xlsx`, `.csv`)</p>
-                            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-                                <i data-lucide="folder-open"></i> Seleccionar Archivos
+                            <h3>Arrastra y suelta Varios Archivos a la vez aquí</h3>
+                            <p>Puedes seleccionar de una vez tus archivos de <strong>FEV</strong>, <strong>Base de Población</strong> y <strong>Base Nominal</strong> (`.xlsx`, `.csv`). El sistema clasificará y validará cada uno automáticamente.</p>
+                            <button class="btn btn-primary" onclick="document.getElementById('file-input-multi').click()">
+                                <i data-lucide="files"></i> Seleccionar Varios Archivos
                             </button>
                         </div>
                     </div>
-                    <!-- Sample Data Launcher -->
-                    <div class="sample-actions">
-                        <span class="text-muted">¿Quieres probar la simulación?</span>
-                        <button class="btn btn-secondary btn-sm" id="btn-load-demo-poblacion">
-                            <i data-lucide="sparkles"></i> Cargar Simulación Demanda Inducida (EMSSANAR / COOSALUD)
-                        </button>
+                </section>
+
+                <!-- Three Dedicated Input Buckets with Auto Validation -->
+                <section class="buckets-grid">
+                    <!-- Bucket 1: Base de Poblacion IPS -->
+                    <div class="bucket-card" id="bucket-poblacion">
+                        <div class="bucket-header">
+                            <div class="bucket-icon green"><i data-lucide="users"></i></div>
+                            <div class="bucket-title">
+                                <h3>1. Base de Población IPS</h3>
+                                <span class="bucket-subtitle">Ej: `EMSSANAR BD_ESE_LADERA.xlsx`</span>
+                            </div>
+                            <span class="status-badge status-missing" id="status-poblacion"><i data-lucide="alert-circle"></i> Pendiente</span>
+                        </div>
+                        <div class="bucket-dropzone" onclick="document.getElementById('file-input-poblacion').click()">
+                            <input type="file" id="file-input-poblacion" accept=".xlsx, .xls, .csv" hidden>
+                            <i data-lucide="file-text"></i>
+                            <span id="label-poblacion">Arrastrar o hacer clic para subir Población IPS</span>
+                        </div>
+                        <div class="bucket-info" id="info-poblacion">Sin registros cargados</div>
                     </div>
+
+                    <!-- Bucket 2: Base FEV / RIPS -->
+                    <div class="bucket-card" id="bucket-fev">
+                        <div class="bucket-header">
+                            <div class="bucket-icon blue"><i data-lucide="file-spreadsheet"></i></div>
+                            <div class="bucket-title">
+                                <h3>2. Base FEV / RIPS</h3>
+                                <span class="bucket-subtitle">Ej: `FEV394424_CORREGIDO.csv`</span>
+                            </div>
+                            <span class="status-badge status-missing" id="status-fev"><i data-lucide="alert-circle"></i> Pendiente</span>
+                        </div>
+                        <div class="bucket-dropzone" onclick="document.getElementById('file-input-fev').click()">
+                            <input type="file" id="file-input-fev" accept=".xlsx, .xls, .csv" hidden>
+                            <i data-lucide="file-spreadsheet"></i>
+                            <span id="label-fev">Arrastrar o hacer clic para subir FEV / RIPS</span>
+                        </div>
+                        <div class="bucket-info" id="info-fev">Sin atenciones cargadas</div>
+                    </div>
+
+                    <!-- Bucket 3: Base Nominal EAPB -->
+                    <div class="bucket-card" id="bucket-nominal">
+                        <div class="bucket-header">
+                            <div class="bucket-icon purple"><i data-lucide="user-check"></i></div>
+                            <div class="bucket-title">
+                                <h3>3. Base Nominal EAPB</h3>
+                                <span class="bucket-subtitle">Ej: `Sigires_NominalAfiliados.xlsx`</span>
+                            </div>
+                            <span class="status-badge status-missing" id="status-nominal"><i data-lucide="alert-circle"></i> Pendiente</span>
+                        </div>
+                        <div class="bucket-dropzone" onclick="document.getElementById('file-input-nominal').click()">
+                            <input type="file" id="file-input-nominal" accept=".xlsx, .xls, .csv" hidden>
+                            <i data-lucide="database"></i>
+                            <span id="label-nominal">Arrastrar o hacer clic para subir Nominal EAPB</span>
+                        </div>
+                        <div class="bucket-info" id="info-nominal">Sin cohorte cargada</div>
+                    </div>
+                </section>
+
+                <!-- Action Toolbar -->
+                <section class="actions-bar">
+                    <button class="btn btn-success btn-lg" id="btn-ejecutar-cruce" disabled>
+                        <i data-lucide="play-circle"></i> Ejecutar Cruce Completo de Demanda Inducida
+                    </button>
+                    <button class="btn btn-secondary" id="btn-load-demo">
+                        <i data-lucide="sparkles"></i> Cargar Simulación Completa (Datos Demo)
+                    </button>
                 </section>
 
                 <!-- Processing Loader -->
                 <div id="loader" class="loader-overlay hidden">
                     <div class="spinner"></div>
-                    <h4 id="loader-message">Procesando cruce de Población IPS vs FEV vs Nominal EAPB...</h4>
-                    <p>Clasificando atenciones realizadas en cohorte, atenciones de más y actividades pendientes</p>
+                    <h4 id="loader-message">Analizando y validando estructura de archivos...</h4>
+                    <p>Validando cabeceras, formato FEV, Población IPS y Nominal EAPB</p>
                 </div>
 
                 <!-- KPI Cards Grid -->
@@ -121,9 +182,9 @@
                     <div class="kpi-card blue">
                         <div class="kpi-icon"><i data-lucide="users"></i></div>
                         <div class="kpi-data">
-                            <span class="kpi-label">Población Auditada</span>
+                            <span class="kpi-label">Población Asignada IPS</span>
                             <h3 id="kpi-total">0</h3>
-                            <span class="kpi-foot" id="kpi-total-sub">Afiliados cargados</span>
+                            <span class="kpi-foot" id="kpi-total-sub">Afiliados evaluados</span>
                         </div>
                     </div>
                     <div class="kpi-card green">
@@ -131,7 +192,7 @@
                         <div class="kpi-data">
                             <span class="kpi-label">Atenciones en Cohorte</span>
                             <h3 id="kpi-cohorte">0</h3>
-                            <span class="kpi-foot" id="kpi-cohorte-sub">Cumplen meta</span>
+                            <span class="kpi-foot" id="kpi-cohorte-sub">Atenciones EAPB en meta</span>
                         </div>
                     </div>
                     <div class="kpi-card purple">
@@ -164,7 +225,7 @@
                     </div>
                     <div class="chart-card">
                         <div class="chart-header">
-                            <h3><i data-lucide="bar-chart-3"></i> Atenciones por Programa / Actividad</h3>
+                            <h3><i data-lucide="bar-chart-3"></i> Atenciones por Programa / Servicio</h3>
                         </div>
                         <div class="chart-body">
                             <canvas id="chart-programas"></canvas>
@@ -185,7 +246,7 @@
                                 <input type="text" id="search-input" placeholder="Buscar paciente, documento, actividad...">
                             </div>
                             <button class="btn btn-success" id="btn-export-excel" disabled>
-                                <i data-lucide="download"></i> Descargar Reportes Excel
+                                <i data-lucide="download"></i> Descargar Reportes Excel Formateados
                             </button>
                         </div>
                     </div>
@@ -207,7 +268,7 @@
                                 <tr>
                                     <td colspan="7" class="empty-table-msg">
                                         <i data-lucide="folder-input"></i>
-                                        <p>No hay datos procesados. Carga un archivo FEV / Nominal o ejecuta la simulación demo de demanda inducida.</p>
+                                        <p>Carga los archivos de Población, FEV y Nominal o usa la simulación para ejecutar el cruce.</p>
                                     </td>
                                 </tr>
                             </tbody>
