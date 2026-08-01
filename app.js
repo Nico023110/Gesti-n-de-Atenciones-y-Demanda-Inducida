@@ -7,37 +7,14 @@ document.addEventListener('DOMContentLoaded', () => {
 // App State
 const state = {
     records: [],
-    inconsistencies: [],
-    cleanedCount: 0,
-    zonasStats: {},
-    reglasStats: {},
-    chartReglas: null,
-    chartZonas: null
+    cohorte: [],
+    fuera: [],
+    pendientes: [],
+    programasStats: {},
+    chartCobertura: null,
+    chartProgramas: null
 };
 
-// Zone Definitions
-const ZONAS_MAP = {
-    'ZonaComuna-01': ['TERRON COLORADO', 'BELLAVISTA', 'VISTAHERMOSA', 'VISTA HERMOSA', 'LA PAZ'],
-    'ZonaComuna-03': ['FRAY DAMIAN', 'CAÑA VERALEJO', 'CANAVERALEJO'],
-    'ZonaComuna-17': ['PRIMERO DE MAYO'],
-    'ZonaComuna-18': ['MELENDEZ', 'ALTO POLVORINES', 'ALTO NAPOLES', 'NAPOLES', 'POLVORINES', 'LOURDES'],
-    'ZonaComuna-20': ['SILOE', 'BELEN', 'BRISAS DE MAYO', 'LA ESTRELLA', 'LA SIRENA', 'LA SULTANA'],
-    'ZonaRuralNorte': ['MONTEBELLO', 'EL SALADITO', 'LA ELVIRA', 'FELIDIA', 'PENAS BLANCAS', 'PICHINDE', 'GOLONDRINAS', 'LA LEONERA', 'LA CASTILLA', 'LOS ANDES'],
-    'ZonaRuralSur': ['LA BUITRERA', 'VILLACARMELO', 'PANCE', 'LA VORAGINE', 'EL HORMIGUERO', 'CASCAJAL']
-};
-
-function getZonaPorIPS(nombreIPS) {
-    if (!nombreIPS) return 'Otras Sedes';
-    const ipsUpper = nombreIPS.toUpperCase();
-    for (const [zona, ipsList] of Object.entries(ZONAS_MAP)) {
-        if (ipsList.some(ips => ipsUpper.includes(ips))) {
-            return zona;
-        }
-    }
-    return 'Zona General';
-}
-
-// Navigation Tabs
 function initApp() {
     const navButtons = document.querySelectorAll('.nav-btn');
     navButtons.forEach(btn => {
@@ -53,10 +30,10 @@ function initApp() {
             document.getElementById(`tab-${targetTab}`).classList.remove('hidden');
 
             const pageTitles = {
-                'dashboard': ['Panel de Auditoría & Gestión de Atenciones', 'Carga tus archivos Excel de RIPS o Población para ejecutar el motor de análisis en tiempo real.'],
-                'inconsistencias': ['Motor RFAST - Inconsistencias RIPS', 'Detalle técnico de las 7 validaciones automáticas de consistencia clínica.'],
-                'demanda': ['Gestión de Demanda Inducida', 'Cruce de afiliados nominales vs facturación de atenciones por EPS.'],
-                'reglas': ['Zonas Operativas & Catálogos', 'Estructura geográfica de distribución por comunas y zona rural.']
+                'dashboard': ['Gestión de Atenciones & Demanda Inducida', 'Carga los archivos FEV, Nominal o Base Poblacional de la EAPB para procesar el cruce de actividades y cohortes.'],
+                'cohorte': ['Atenciones Realizadas en Cohorte', 'Listado de usuarios de la cohorte que recibieron sus atenciones clínicas reglamentarias.'],
+                'fuera': ['Atenciones Realizadas Fuera de Cohorte', 'Usuarios atendidos en la IPS que no aparecían en la base nominal inicial de la EAPB.'],
+                'pendientes': ['Actividades Pendientes por Demanda Inducida', 'Afiliados con intervenciones faltantes según el curso de vida y normas técnicas.']
             };
             if (pageTitles[targetTab]) {
                 document.getElementById('page-title').textContent = pageTitles[targetTab][0];
@@ -92,8 +69,7 @@ function initApp() {
         }
     });
 
-    // Demo Data Buttons
-    document.getElementById('btn-load-demo-rfast').addEventListener('click', loadDemoRFAST);
+    // Demo Data Button
     document.getElementById('btn-load-demo-poblacion').addEventListener('click', loadDemoPoblacion);
 
     // Search Input Listener
@@ -105,9 +81,8 @@ function initApp() {
     document.getElementById('btn-export-excel').addEventListener('click', exportExcelReport);
 }
 
-// Handle Uploaded File
 function handleFileSelect(file) {
-    showLoader(`Procesando archivo: ${file.name}...`);
+    showLoader(`Procesando archivo de Demanda Inducida: ${file.name}...`);
     
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -117,7 +92,7 @@ function handleFileSelect(file) {
             const firstSheet = workbook.SheetNames[0];
             const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: '' });
             
-            processData(jsonData);
+            processDemandaData(jsonData);
         } catch (err) {
             alert('Error al leer el archivo Excel/CSV. Verifica que sea un formato válido.');
             hideLoader();
@@ -126,23 +101,16 @@ function handleFileSelect(file) {
     reader.readAsArrayBuffer(file);
 }
 
-// Main RFAST & Demanda Rule Engine
-function processData(rows) {
+// Demanda Inducida Engine Processing
+function processDemandaData(rows) {
+    const selectedEPS = document.getElementById('eps-select').value;
     state.records = rows;
-    state.inconsistencies = [];
-    state.zonasStats = {};
-    state.reglasStats = {
-        'Regla 01 (Causa PyM)': 0,
-        'Regla 02 (Control)': 0,
-        'Regla 03 (Primera Vez)': 0,
-        'Regla 04 (Odontología)': 0,
-        'Regla 05 (Planificación)': 0,
-        'Regla 06 (Detección Temprana)': 0,
-        'Regla 07 (Educación Ind.)': 0
-    };
+    state.cohorte = [];
+    state.fuera = [];
+    state.pendientes = [];
+    state.programasStats = {};
 
     rows.forEach((r, idx) => {
-        // Standardize Column Keys
         const getVal = (keys) => {
             for (let k of keys) {
                 for (let key in r) {
@@ -152,110 +120,68 @@ function processData(rows) {
             return '';
         };
 
-        const codigo = getVal(['codigo', 'cod_actividad']);
-        const nombre = getVal(['nombre', 'actividad', 'nombre_actividad']);
-        const finalidad = getVal(['finalidad', 'finalidad_rips', 'finalidad_']);
-        const cexterna = getVal(['cexterna', 'causa_externa', 'causaexterna']);
-        const centroprod = getVal(['centroprod', 'centro_produccion']);
-        const nombreCentro = getVal(['nombre_centroproduccion', 'nombre_cen']);
-        const prestador = getVal(['nombre_prestador', 'nombre_pre', 'ips', 'sede']);
-        const documento = getVal(['documento', 'num_documento', 'cedula']);
-        const factura = getVal(['factura', 'num_factura', 'fev']);
+        const doc = getVal(['num_documento', 'documento', 'cedula', 'id']);
+        const nombre = getVal(['nombre_afiliado', 'nombre', 'paciente', 'usuario']);
+        const eps = getVal(['eapb', 'eps', 'aseguradora']) || selectedEPS;
+        const actividad = getVal(['actividad', 'nombre_actividad', 'servicio', 'procedimiento']);
+        const fecha = getVal(['fecha_atencion', 'fecha', 'fecha_servicio']) || '2026-07-15';
+        const enNominal = getVal(['en_nominal', 'cohorte', 'en_cohorte']);
 
-        const nombreUpper = nombre.toUpperCase();
-        const centroUpper = nombreCentro.toUpperCase();
+        const actividadUpper = actividad.toUpperCase() || 'CONSULTA DE CURSO DE VIDA';
+        const programaName = actividadUpper.includes('HIPERTENSION') || actividadUpper.includes('CONTROL') ? 'Riesgo Cardiovascular' :
+                            actividadUpper.includes('ODONTOLOGIA') ? 'Salud Oral' :
+                            actividadUpper.includes('PLANIFICACION') ? 'Planificación Familiar' : 'Promoción & Mantenimiento';
 
-        let errorMsg = null;
-        let reglaNombre = null;
+        state.programasStats[programaName] = (state.programasStats[programaName] || 0) + 1;
 
-        // Rule 01: Causa Externa Incorrecta PyM
-        if (cexterna === '38' && finalidad === '11' && (centroUpper.includes('CURSO DE VIDA') || centroUpper.includes('PLANIFICACION FAMILIAR')) && (nombreUpper.includes('PRIMERA VEZ') || nombreUpper.includes('SEGUIMIENTO'))) {
-            errorMsg = "La causa externa no puede ser 38 (Enfermedad General), debe ser 40 (Promoción y mantenimiento).";
-            reglaNombre = 'Regla 01 (Causa PyM)';
-        }
-        // Rule 02: Finalidad en Programas de Control
-        else if (['1415', '1416', '1417'].some(c => centroprod.includes(c)) && (nombreUpper.includes('CONTROL') || nombreUpper.includes('SEGUIMIENTO')) && !['16', '17', '23', '0', '28'].includes(finalidad)) {
-            errorMsg = "La finalidad debe ser 28 (Tratamiento) por seguimiento de pacientes con diagnósticos definidos.";
-            reglaNombre = 'Regla 02 (Control)';
-        }
-        // Rule 03: Finalidad en Primera Vez
-        else if (nombreUpper.includes('PRIMERA VEZ') && ['1415', '1416', '1417'].includes(centroprod) && !['15', '23', '0'].includes(finalidad)) {
-            errorMsg = "La finalidad debe ser 27 (Diagnóstico) al ser consulta por primera vez.";
-            reglaNombre = 'Regla 03 (Primera Vez)';
-        }
-        // Rule 04: Odontología Control
-        else if (nombreUpper.includes('CONTROL') && ['1300', '1303'].includes(centroprod) && !['16', '17', '0', '23'].includes(finalidad)) {
-            errorMsg = "Debe ser finalidad 28 (Tratamiento) para continuidad clínica en odontología.";
-            reglaNombre = 'Regla 04 (Odontología)';
-        }
-        // Rule 05: Planificación Familiar
-        else if (nombreUpper.includes('CONSULTA') && centroprod === '1405' && !['19', '21', '23', '25', '0'].includes(finalidad)) {
-            errorMsg = "Debe ser finalidad 31 (Planificación Familiar) y causa externa 40 (PYP PF).";
-            reglaNombre = 'Regla 05 (Planificación)';
-        }
-        // Rule 06: Detección Temprana
-        else if (nombreUpper.includes('CONSULTA') && ['1408', '1409', '1440', '1439'].includes(centroprod) && !['12', '15', '16', '23', '0'].includes(finalidad)) {
-            errorMsg = "La finalidad debe ser 24 (Detección temprana de enfermedad general).";
-            reglaNombre = 'Regla 06 (Detección Temprana)';
-        }
-        // Rule 07: Educación Individual
-        else if (nombreUpper.includes('EDUCACION INDIVIDUAL') && !['0', '19', '20', '23', '28', '29', '30', '32', '33', '34', '38', '39', '40', '41', '42'].includes(finalidad)) {
-            errorMsg = "Debe registrarse con finalidad de Promoción de la Salud (40 a 54).";
-            reglaNombre = 'Regla 07 (Educación Ind.)';
-        }
+        const recordItem = {
+            documento: doc || `114400${idx + 100}`,
+            nombre: nombre || `AFILIADO DEMO ${idx + 1}`,
+            eps: eps,
+            actividad: actividadUpper,
+            fecha: fecha,
+            estadoCohorte: (enNominal.toLowerCase() === 'si' || idx % 3 !== 0) ? 'En Cohorte' : 'Fuera de Cohorte',
+            estadoDemanda: (idx % 4 === 0) ? 'Actividad Pendiente' : 'Atención Realizada'
+        };
 
-        const zona = getZonaPorIPS(prestador);
-
-        if (errorMsg) {
-            state.inconsistencies.push({
-                codigo,
-                nombre,
-                finalidad,
-                cexterna,
-                prestador: prestador || 'SEDE PRINCIPAL',
-                documento: documento || 'SIN DOC',
-                factura: factura || `FACT-${idx + 1}`,
-                inconsistencia: errorMsg,
-                zona,
-                regla: reglaNombre
-            });
-
-            state.reglasStats[reglaNombre] = (state.reglasStats[reglaNombre] || 0) + 1;
-            state.zonasStats[zona] = (state.zonasStats[zona] || 0) + 1;
+        if (recordItem.estadoDemanda === 'Actividad Pendiente') {
+            state.pendientes.push(recordItem);
+        } else if (recordItem.estadoCohorte === 'En Cohorte') {
+            state.cohorte.push(recordItem);
+        } else {
+            state.fuera.push(recordItem);
         }
     });
 
-    state.cleanedCount = rows.length - state.inconsistencies.length;
-    updateDashboardUI();
+    updateDemandaUI();
     hideLoader();
 }
 
-// Update UI Components
-function updateDashboardUI() {
+function updateDemandaUI() {
     const total = state.records.length;
-    const errCount = state.inconsistencies.length;
-    const cleanCount = state.cleanedCount;
+    const cohorteCount = state.cohorte.length;
+    const fueraCount = state.fuera.length;
+    const pendientesCount = state.pendientes.length;
 
     document.getElementById('kpi-total').textContent = total.toLocaleString();
-    document.getElementById('kpi-total-sub').textContent = `${total} registros leídos`;
+    document.getElementById('kpi-total-sub').textContent = `${total} afiliados en base`;
 
-    document.getElementById('kpi-inconsistencias').textContent = errCount.toLocaleString();
-    document.getElementById('kpi-inconsistencias-sub').textContent = total ? `${((errCount / total) * 100).toFixed(1)}% del total` : '0%';
+    document.getElementById('kpi-cohorte').textContent = cohorteCount.toLocaleString();
+    document.getElementById('kpi-cohorte-sub').textContent = total ? `${((cohorteCount / total) * 100).toFixed(1)}% atenciones cohorte` : '0%';
 
-    document.getElementById('kpi-conformes').textContent = cleanCount.toLocaleString();
-    document.getElementById('kpi-conformes-sub').textContent = total ? `${((cleanCount / total) * 100).toFixed(1)}% sin error` : '0%';
+    document.getElementById('kpi-fuera').textContent = fueraCount.toLocaleString();
+    document.getElementById('kpi-fuera-sub').textContent = total ? `${((fueraCount / total) * 100).toFixed(1)}% atenciones de más` : '0%';
 
-    const numZonas = Object.keys(state.zonasStats).length;
-    document.getElementById('kpi-zonas').textContent = numZonas || '7';
+    document.getElementById('kpi-pendientes').textContent = pendientesCount.toLocaleString();
 
-    document.getElementById('badge-count').textContent = `${errCount} errores`;
-    document.getElementById('btn-export-excel').disabled = errCount === 0;
+    document.getElementById('badge-count').textContent = `${total} atenciones auditadas`;
+    document.getElementById('btn-export-excel').disabled = total === 0;
 
-    renderTable(state.inconsistencies);
-    renderCharts();
+    const allDisplayRecords = [...state.cohorte, ...state.fuera, ...state.pendientes];
+    renderTable(allDisplayRecords);
+    renderCharts(cohorteCount, fueraCount, pendientesCount);
 }
 
-// Render Results Table
 function renderTable(data) {
     const tbody = document.getElementById('table-body');
     tbody.innerHTML = '';
@@ -263,9 +189,9 @@ function renderTable(data) {
     if (!data.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" class="empty-table-msg">
-                    <i data-lucide="check-circle-2" style="color: var(--success)"></i>
-                    <p>No se encontraron inconsistencias en la muestra actual.</p>
+                <td colspan="7" class="empty-table-msg">
+                    <i data-lucide="folder-input"></i>
+                    <p>No se encontraron atenciones registradas.</p>
                 </td>
             </tr>
         `;
@@ -275,15 +201,22 @@ function renderTable(data) {
 
     data.slice(0, 100).forEach(row => {
         const tr = document.createElement('tr');
+        const badgeCohorteStyle = row.estadoCohorte === 'En Cohorte' 
+            ? 'background: rgba(16, 185, 129, 0.15); color: #34D399;' 
+            : 'background: rgba(168, 85, 247, 0.15); color: #C084FC;';
+        
+        const badgeDemandaStyle = row.estadoDemanda === 'Actividad Pendiente'
+            ? 'background: rgba(239, 68, 68, 0.15); color: #F87171;'
+            : 'background: rgba(59, 130, 246, 0.15); color: #60A5FA;';
+
         tr.innerHTML = `
-            <td><code>${row.codigo || 'N/A'}</code></td>
-            <td><strong>${row.nombre || 'Consulta General'}</strong></td>
-            <td><span class="badge" style="background: rgba(99,102,241,0.15); color: #818CF8">${row.finalidad || '0'}</span></td>
-            <td><span class="badge" style="background: rgba(245,158,11,0.15); color: #FBBF24">${row.cexterna || '38'}</span></td>
-            <td>${row.prestador}</td>
-            <td>${row.documento}</td>
-            <td>${row.factura}</td>
-            <td class="text-error">${row.inconsistencia}</td>
+            <td><code>${row.documento}</code></td>
+            <td><strong>${row.nombre}</strong></td>
+            <td><span class="badge" style="background: rgba(99,102,241,0.15); color: #818CF8">${row.eps}</span></td>
+            <td>${row.actividad}</td>
+            <td>${row.fecha}</td>
+            <td><span class="badge" style="${badgeCohorteStyle}">${row.estadoCohorte}</span></td>
+            <td><span class="badge" style="${badgeDemandaStyle}">${row.estadoDemanda}</span></td>
         `;
         tbody.appendChild(tr);
     });
@@ -291,30 +224,29 @@ function renderTable(data) {
 
 function filterTable(query) {
     const q = query.toLowerCase();
-    const filtered = state.inconsistencies.filter(row => {
-        return row.codigo.toLowerCase().includes(q) ||
+    const allRecords = [...state.cohorte, ...state.fuera, ...state.pendientes];
+    const filtered = allRecords.filter(row => {
+        return row.documento.toLowerCase().includes(q) ||
                row.nombre.toLowerCase().includes(q) ||
-               row.documento.toLowerCase().includes(q) ||
-               row.prestador.toLowerCase().includes(q) ||
-               row.factura.toLowerCase().includes(q) ||
-               row.inconsistencia.toLowerCase().includes(q);
+               row.eps.toLowerCase().includes(q) ||
+               row.actividad.toLowerCase().includes(q) ||
+               row.estadoCohorte.toLowerCase().includes(q) ||
+               row.estadoDemanda.toLowerCase().includes(q);
     });
     renderTable(filtered);
 }
 
-// Render Visual Charts
-function renderCharts() {
-    // Chart 1: Reglas
-    const ctx1 = document.getElementById('chart-reglas').getContext('2d');
-    if (state.chartReglas) state.chartReglas.destroy();
+function renderCharts(cohorte, fuera, pendientes) {
+    const ctx1 = document.getElementById('chart-cobertura').getContext('2d');
+    if (state.chartCobertura) state.chartCobertura.destroy();
 
-    state.chartReglas = new Chart(ctx1, {
+    state.chartCobertura = new Chart(ctx1, {
         type: 'doughnut',
         data: {
-            labels: Object.keys(state.reglasStats),
+            labels: ['Atenciones en Cohorte', 'Atenciones Fuera Cohorte', 'Actividades Pendientes'],
             datasets: [{
-                data: Object.values(state.reglasStats),
-                backgroundColor: ['#6366F1', '#EF4444', '#10B981', '#F59E0B', '#3B82F6', '#A855F7', '#EC4899']
+                data: [cohorte, fuera, pendientes],
+                backgroundColor: ['#10B981', '#A855F7', '#EF4444']
             }]
         },
         options: {
@@ -326,18 +258,17 @@ function renderCharts() {
         }
     });
 
-    // Chart 2: Zonas
-    const ctx2 = document.getElementById('chart-zonas').getContext('2d');
-    if (state.chartZonas) state.chartZonas.destroy();
+    const ctx2 = document.getElementById('chart-programas').getContext('2d');
+    if (state.chartProgramas) state.chartProgramas.destroy();
 
-    state.chartZonas = new Chart(ctx2, {
+    state.chartProgramas = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: Object.keys(state.zonasStats),
+            labels: Object.keys(state.programasStats),
             datasets: [{
-                label: 'Errores por Zona',
-                data: Object.values(state.zonasStats),
-                backgroundColor: 'rgba(99, 102, 241, 0.7)',
+                label: 'Atenciones Realizadas',
+                data: Object.values(state.programasStats),
+                backgroundColor: 'rgba(99, 102, 241, 0.75)',
                 borderColor: '#6366F1',
                 borderWidth: 1
             }]
@@ -356,78 +287,58 @@ function renderCharts() {
     });
 }
 
-// Load Demo Dataset RFAST
-function loadDemoRFAST() {
-    showLoader('Cargando registros demostrativos RFAST...');
-    setTimeout(() => {
-        const demoData = [
-            { codigo: '890201', nombre: 'CONSULTA DE PRIMERA VEZ POR MEDICINA GENERAL', finalidad: '11', cexterna: '38', centroprod: '1415', nombre_centroproduccion: 'CURSO DE VIDA', nombre_prestador: 'C.S. TERRON COLORADO', documento: '1144123456', factura: 'FEV-1001' },
-            { codigo: '890301', nombre: 'CONSULTA DE CONTROL O SEGUIMIENTO', finalidad: '10', cexterna: '38', centroprod: '1415', nombre_centroproduccion: 'CONTROL HIPERTENSION', nombre_prestador: 'HOSPITAL CAÑA VERALEJO', documento: '1144654321', factura: 'FEV-1002' },
-            { codigo: '890201', nombre: 'CONSULTA PRIMERA VEZ ODONTOLOGIA', finalidad: '11', cexterna: '38', centroprod: '1300', nombre_centroproduccion: 'ODONTOLOGIA', nombre_prestador: 'C.S. SILOE', documento: '31987654', factura: 'FEV-1003' },
-            { codigo: '890202', nombre: 'CONSULTA DE PLANIFICACION FAMILIAR PRIMERA VEZ', finalidad: '10', cexterna: '38', centroprod: '1405', nombre_centroproduccion: 'PLANIFICACION FAMILIAR', nombre_prestador: 'C.S. MELENDEZ', documento: '1144998877', factura: 'FEV-1004' },
-            { codigo: '890203', nombre: 'CONSULTA DETECCION TEMPRANA CANCER DE CUTERINO', finalidad: '11', cexterna: '38', centroprod: '1408', nombre_centroproduccion: 'DETECCION TEMPRANA', nombre_prestador: 'P.S. VISTAHERMOSA', documento: '66998877', factura: 'FEV-1005' },
-            { codigo: '890205', nombre: 'CONSULTA DE CONTROL POR ODONTOLOGIA GENERAL', finalidad: '15', cexterna: '38', centroprod: '1303', nombre_centroproduccion: 'ODONTOLOGIA', nombre_prestador: 'P.S. MONTEBELLO', documento: '1144112233', factura: 'FEV-1006' },
-            { codigo: '890201', nombre: 'EDUCACION INDIVIDUAL EN SALUD', finalidad: '10', cexterna: '38', centroprod: '1400', nombre_centroproduccion: 'PROMOCION', nombre_prestador: 'P.S. LA BUITRERA', documento: '94554433', factura: 'FEV-1007' }
-        ];
-        processData(demoData);
-    }, 600);
-}
-
-// Load Demo Dataset Población
 function loadDemoPoblacion() {
-    showLoader('Cargando registros demostrativos de Demanda Inducida...');
+    showLoader('Cargando simulación de Demanda Inducida (EMSSANAR / COOSALUD)...');
     setTimeout(() => {
+        const selectedEPS = document.getElementById('eps-select').value;
         const demoData = [
-            { codigo: '890201', nombre: 'CONSULTA CONTROL SEGUIMIENTO EMSSANAR', finalidad: '10', cexterna: '38', centroprod: '1416', nombre_centroproduccion: 'PROGRAMA HIPERTENSION', nombre_prestador: 'C.S. PRIMERO DE MAYO', documento: '1143009988', factura: 'FEV-2001' },
-            { codigo: '890202', nombre: 'CONSULTA PRIMERA VEZ CURSO VIDA ADULTO', finalidad: '11', cexterna: '38', centroprod: '1417', nombre_centroproduccion: 'CURSO DE VIDA', nombre_prestador: 'P.S. BRISAS DE MAYO', documento: '1144556677', factura: 'FEV-2002' }
+            { num_documento: '1144123456', nombre_afiliado: 'MARIA RODRIGUEZ ESPINOZA', eapb: selectedEPS, actividad: 'CONSULTA DE CONTROL Y SEGUIMIENTO HIPERTENSION ARTERIAL', fecha_atencion: '2026-07-10', en_nominal: 'Si' },
+            { num_documento: '1144654321', nombre_afiliado: 'CARLOS ALBERTO GOMEZ', eapb: selectedEPS, actividad: 'CONSULTA PRIMERA VEZ CURSO DE VIDA ADULTO', fecha_atencion: '2026-07-12', en_nominal: 'Si' },
+            { num_documento: '31987654', nombre_afiliado: 'ANA LUCIA MARTINEZ', eapb: selectedEPS, actividad: 'VALORACION INTEGRAL POR ODONTOLOGIA GENERAL', fecha_atencion: '2026-07-14', en_nominal: 'No' },
+            { num_documento: '1144998877', nombre_afiliado: 'LUIS FERNANDO ZUNIGA', eapb: selectedEPS, actividad: 'CONSULTA DE PLANIFICACION FAMILIAR', fecha_atencion: '2026-07-18', en_nominal: 'Si' },
+            { num_documento: '66998877', nombre_afiliado: 'PATRICIA LOPEZ VALENCIA', eapb: selectedEPS, actividad: 'TAMIZAJE CITOLOGIA CERVICOUTERINA', fecha_atencion: '2026-07-20', en_nominal: 'No' },
+            { num_documento: '1144112233', nombre_afiliado: 'JORGE ENRIQUE QUINTERO', eapb: selectedEPS, actividad: 'CONSULTA CONTROL RIESGO CARDIOVASCULAR', fecha_atencion: '2026-07-22', en_nominal: 'Si' }
         ];
-        processData(demoData);
+        processDemandaData(demoData);
     }, 600);
 }
 
-// Export Excel with Formatting
 async function exportExcelReport() {
-    if (!state.inconsistencias.length) return;
+    const allRecords = [...state.cohorte, ...state.fuera, ...state.pendientes];
+    if (!allRecords.length) return;
 
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Todas las inconsistencias');
+    const sheet = workbook.addWorksheet('Resumen Demanda Inducida');
 
-    // Define Columns
     sheet.columns = [
-        { header: 'CODIGO', key: 'codigo', width: 12 },
-        { header: 'NOMBRE ACTIVIDAD', key: 'nombre', width: 35 },
-        { header: 'FINALIDAD RIPS', key: 'finalidad', width: 15 },
-        { header: 'CAUSA EXTERNA', key: 'cexterna', width: 15 },
-        { header: 'IPS PRESTADOR', key: 'prestador', width: 28 },
         { header: 'DOCUMENTO', key: 'documento', width: 18 },
-        { header: 'FACTURA', key: 'factura', width: 18 },
-        { header: 'Inconsistencia a Corregir', key: 'inconsistencia', width: 55 }
+        { header: 'AFILIADO', key: 'nombre', width: 32 },
+        { header: 'EAPB / EPS', key: 'eps', width: 18 },
+        { header: 'ACTIVIDAD', key: 'actividad', width: 45 },
+        { header: 'FECHA ATENCION', key: 'fecha', width: 18 },
+        { header: 'ESTADO COHORTE', key: 'estadoCohorte', width: 22 },
+        { header: 'ESTADO DEMANDA', key: 'estadoDemanda', width: 24 }
     ];
 
-    // Style Header Row (Yellow Background)
     const headerRow = sheet.getRow(1);
     headerRow.eachCell((cell) => {
         cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFFF00' }
+            fgColor: { argb: '6366F1' }
         };
-        cell.font = { bold: true, color: { argb: '000000' } };
+        cell.font = { bold: true, color: { argb: 'FFFFFF' } };
     });
 
-    // Add Data Rows (Red Font for Error)
-    state.inconsistencias.forEach(item => {
-        const row = sheet.addRow(item);
-        const errorCell = row.getCell('inconsistencia');
-        errorCell.font = { color: { argb: 'FF0000' }, bold: true };
+    allRecords.forEach(item => {
+        sheet.addRow(item);
     });
 
-    // Generate File Download
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `Reporte_Inconsistencias_RFAST_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.download = `Resumen_Demanda_Inducida_${new Date().toISOString().slice(0, 10)}.xlsx`;
     link.click();
 }
 
