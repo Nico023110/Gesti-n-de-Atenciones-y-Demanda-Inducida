@@ -35,13 +35,10 @@ function initApp() {
         });
     });
 
-    // Universal Multi-File Dropzone
-    setupDropzone('dropzone-multi', 'file-input-multi', handleMultipleFiles);
-
-    // Individual Bucket Dropzones
-    setupDropzone('bucket-poblacion', 'file-input-poblacion', (files) => handleSingleBucket(files[0], 'poblacion'));
-    setupDropzone('bucket-fev', 'file-input-fev', (files) => handleSingleBucket(files[0], 'fev'));
-    setupDropzone('bucket-nominal', 'file-input-nominal', (files) => handleSingleBucket(files[0], 'nominal'));
+    // Individual Bucket Dropzones for the 3 Categories
+    setupDropzone('bucket-poblacion', 'file-input-poblacion', (file) => handleSingleBucket(file, 'poblacion'));
+    setupDropzone('bucket-fev', 'file-input-fev', (file) => handleSingleBucket(file, 'fev'));
+    setupDropzone('bucket-nominal', 'file-input-nominal', (file) => handleSingleBucket(file, 'nominal'));
 
     // Action Buttons
     document.getElementById('btn-ejecutar-cruce').addEventListener('click', runDemandaCrucePipeline);
@@ -52,7 +49,7 @@ function initApp() {
     document.getElementById('btn-export-excel').addEventListener('click', exportExcelReport);
 }
 
-function setupDropzone(elementId, inputId, onFilesSelected) {
+function setupDropzone(elementId, inputId, onFileSelected) {
     const el = document.getElementById(elementId);
     const input = document.getElementById(inputId);
 
@@ -71,34 +68,18 @@ function setupDropzone(elementId, inputId, onFilesSelected) {
         e.preventDefault();
         el.classList.remove('dragover');
         if (e.dataTransfer.files.length) {
-            onFilesSelected(Array.from(e.dataTransfer.files));
+            onFileSelected(e.dataTransfer.files[0]);
         }
     });
 
     input.addEventListener('change', (e) => {
         if (e.target.files.length) {
-            onFilesSelected(Array.from(e.target.files));
+            onFileSelected(e.target.files[0]);
         }
     });
 }
 
-// Process Multiple Files at Once
-function handleMultipleFiles(files) {
-    showLoader(`Analizando y clasificando ${files.length} archivo(s)...`);
-    
-    let processedCount = 0;
-    files.forEach(file => {
-        readAndClassifyFile(file, () => {
-            processedCount++;
-            if (processedCount === files.length) {
-                hideLoader();
-                checkCanRun();
-            }
-        });
-    });
-}
-
-// Process File into Specific Bucket
+// Process File into Specific Bucket with Classifier Validation
 function handleSingleBucket(file, expectedType) {
     if (!file) return;
     showLoader(`Leyendo y validando: ${file.name}...`);

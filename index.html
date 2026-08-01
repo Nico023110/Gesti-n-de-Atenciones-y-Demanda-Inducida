@@ -67,7 +67,7 @@
             <header class="top-header">
                 <div class="header-titles">
                     <h1 id="page-title">Carga de Bases & Cruce de Demanda Inducida</h1>
-                    <p id="page-subtitle">Carga los archivos FEV, Población IPS y Nominal EAPB por separado o arrastra varios archivos a la vez.</p>
+                    <p id="page-subtitle">Carga cada archivo en su cargador correspondiente (Población IPS, FEV/RIPS y Nominal EAPB) para ejecutar el cruce.</p>
                 </div>
                 <div class="header-actions">
                     <div class="eps-selector-wrapper">
@@ -85,23 +85,6 @@
 
             <!-- Dashboard View -->
             <div id="tab-dashboard" class="tab-content active">
-                
-                <!-- Multi-file Dropzone Universal -->
-                <section class="upload-section">
-                    <div class="dropzone dropzone-main" id="dropzone-multi">
-                        <input type="file" id="file-input-multi" accept=".xlsx, .xls, .csv" multiple hidden>
-                        <div class="dropzone-content">
-                            <div class="upload-icon-wrapper">
-                                <i data-lucide="upload-cloud"></i>
-                            </div>
-                            <h3>Arrastra y suelta Varios Archivos a la vez aquí</h3>
-                            <p>Puedes seleccionar de una vez tus archivos de <strong>FEV</strong>, <strong>Base de Población</strong> y <strong>Base Nominal</strong> (`.xlsx`, `.csv`). El sistema clasificará y validará cada uno automáticamente.</p>
-                            <button class="btn btn-primary" onclick="document.getElementById('file-input-multi').click()">
-                                <i data-lucide="files"></i> Seleccionar Varios Archivos
-                            </button>
-                        </div>
-                    </div>
-                </section>
 
                 <!-- Three Dedicated Input Buckets with Auto Validation -->
                 <section class="buckets-grid">
