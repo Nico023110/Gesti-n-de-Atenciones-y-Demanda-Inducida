@@ -31,7 +31,6 @@ const state = {
 };
 
 function initApp() {
-    // Navigation Tabs
     const navButtons = document.querySelectorAll('.nav-btn');
     navButtons.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -46,28 +45,23 @@ function initApp() {
         });
     });
 
-    // Individual Bucket Dropzones for the 3 Categories (Supports CSV, XLSX, TSV, TXT tab-delimited files & folders)
     setupDropzone('bucket-poblacion', 'file-input-poblacion', (files) => handleBucketFiles(files, 'poblacion'));
     setupDropzone('bucket-fev', 'file-input-fev', (files) => handleBucketFiles(files, 'fev'));
     setupDropzone('bucket-nominal', 'file-input-nominal', (files) => handleBucketFiles(files, 'nominal'));
 
-    // Action Buttons
     document.getElementById('btn-ejecutar-cruce').addEventListener('click', runDemandaCrucePipeline);
     document.getElementById('btn-load-demo').addEventListener('click', loadDemoSimulation);
 
-    // Search Box Listeners
     setupSearch('search-input', 'all');
     setupSearch('search-cohorte', 'cohorte');
     setupSearch('search-fuera', 'fuera');
     setupSearch('search-pendientes', 'pendientes');
 
-    // Pagination Listeners
     setupPaginationControls('all', 'btn-prev-page', 'btn-next-page');
     setupPaginationControls('cohorte', 'btn-prev-cohorte', 'btn-next-cohorte');
     setupPaginationControls('fuera', 'btn-prev-fuera', 'btn-next-fuera');
     setupPaginationControls('pendientes', 'btn-prev-pendientes', 'btn-next-pendientes');
 
-    // Excel Export Buttons
     document.getElementById('btn-export-excel').addEventListener('click', () => exportExcelSubSet('all', 'Consolidado_Demanda_Inducida'));
     document.getElementById('btn-export-cohorte').addEventListener('click', () => exportExcelSubSet('cohorte', 'Atenciones_en_Cohorte'));
     document.getElementById('btn-export-fuera').addEventListener('click', () => exportExcelSubSet('fuera', 'Atenciones_Fuera_de_Cohorte'));
@@ -104,7 +98,6 @@ function setupDropzone(elementId, inputId, onFilesSelected) {
     });
 }
 
-// Process Files Uploaded to a Bucket
 async function handleBucketFiles(files, bucketType) {
     if (!files || !files.length) return;
     
@@ -154,61 +147,110 @@ async function handleBucketFiles(files, bucketType) {
     checkCanRun();
 }
 
-function parseFileRows(file) {
-    return new Promise((resolve) => {
-        const ext = file.name.toLowerCase();
-        const reader = new FileReader();
+// 🚀 ROBUST PARSER: Uses ExcelJS for .xlsx to bypass SheetJS !ref row limits, fallbacks to SheetJS for .xls, and native JS for CSV/TSV
+async function parseFileRows(file) {
+    const ext = file.name.toLowerCase();
 
-        if (ext.endsWith('.xlsx') || ext.endsWith('.xls')) {
-            reader.onload = (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                    const firstSheet = workbook.SheetNames[0];
-                    const sheet = workbook.Sheets[firstSheet];
-
-                    recalculateSheetRefRange(sheet);
-
-                    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-                    resolve(rows);
-                } catch (err) {
-                    console.error('XLSX parse error:', err);
-                    resolve([]);
+    if (ext.endsWith('.xlsx')) {
+        try {
+            // Use ExcelJS for .xlsx files. It iterates rows directly and ignores corrupt !ref limits.
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(arrayBuffer);
+            
+            const worksheet = workbook.worksheets[0];
+            const rows = [];
+            const headers = [];
+            let headerParsed = false;
+            
+            worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+                const values = row.values;
+                // row.values is 1-indexed array in ExcelJS [empty, col1, col2...]
+                if (!headerParsed) {
+                    for (let i = 1; i < values.length; i++) {
+                        headers.push(values[i] ? values[i].toString().trim() : `Col_${i}`);
+                    }
+                    headerParsed = true;
+                } else {
+                    const rowObj = {};
+                    for (let i = 1; i <= headers.length; i++) {
+                        const header = headers[i - 1];
+                        let val = values[i];
+                        
+                        if (val !== null && val !== undefined) {
+                            if (val.richText) {
+                                val = val.richText.map(rt => rt.text).join('');
+                            } else if (val instanceof Date) {
+                                val = val.toISOString().slice(0, 10);
+                            } else if (typeof val === 'object' && val.result !== undefined) {
+                                // Formula result
+                                val = val.result;
+                            }
+                            rowObj[header] = val.toString().trim();
+                        } else {
+                            rowObj[header] = '';
+                        }
+                    }
+                    rows.push(rowObj);
                 }
-            };
-            reader.readAsArrayBuffer(file);
-        } else {
-            reader.onload = (e) => {
-                const text = e.target.result;
-                const rows = parseCSVText(text);
-                resolve(rows);
-            };
-            reader.readAsText(file, 'UTF-8');
+            });
+            return rows;
+        } catch (err) {
+            console.error('ExcelJS parse error, falling back to SheetJS:', err);
+            return parseWithSheetJS(file);
         }
-    });
+    } else if (ext.endsWith('.xls')) {
+        return parseWithSheetJS(file);
+    } else {
+        // Text-based files (.csv, .tsv, .txt)
+        const text = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = e => reject(e);
+            reader.readAsText(file, 'UTF-8');
+        });
+        return parseCSVText(text);
+    }
 }
 
-function recalculateSheetRefRange(sheet) {
-    if (!sheet) return;
-    let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
-    let hasCells = false;
+function parseWithSheetJS(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                const firstSheet = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[firstSheet];
 
-    for (let key in sheet) {
-        if (key[0] === '!') continue;
-        const cell = XLSX.utils.decode_cell(key);
-        hasCells = true;
-        if (cell.r < minRow) minRow = cell.r;
-        if (cell.r > maxRow) maxRow = cell.r;
-        if (cell.c < minCol) minCol = cell.c;
-        if (cell.c > maxCol) maxCol = cell.c;
-    }
+                // Attempt to fix !ref range metadata just in case
+                let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
+                let hasCells = false;
+                for (let key in sheet) {
+                    if (key[0] === '!') continue;
+                    const cell = XLSX.utils.decode_cell(key);
+                    hasCells = true;
+                    if (cell.r < minRow) minRow = cell.r;
+                    if (cell.r > maxRow) maxRow = cell.r;
+                    if (cell.c < minCol) minCol = cell.c;
+                    if (cell.c > maxCol) maxCol = cell.c;
+                }
+                if (hasCells) {
+                    sheet['!ref'] = XLSX.utils.encode_range({
+                        s: { r: minRow, c: minCol },
+                        e: { r: maxRow, c: maxCol }
+                    });
+                }
 
-    if (hasCells) {
-        sheet['!ref'] = XLSX.utils.encode_range({
-            s: { r: minRow, c: minCol },
-            e: { r: maxRow, c: maxCol }
-        });
-    }
+                const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+                resolve(rows);
+            } catch (err) {
+                console.error('SheetJS parse error:', err);
+                resolve([]);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
 }
 
 function parseCSVText(text) {
@@ -369,13 +411,11 @@ function updateDemandaResultsUI() {
     document.getElementById('badge-count-fuera').textContent = `${fueraCount.toLocaleString()} registros`;
     document.getElementById('badge-count-pendientes').textContent = `${pendientesCount.toLocaleString()} registros`;
 
-    // Enable Export Buttons
     document.getElementById('btn-export-excel').disabled = totalAll === 0;
     document.getElementById('btn-export-cohorte').disabled = cohorteCount === 0;
     document.getElementById('btn-export-fuera').disabled = fueraCount === 0;
     document.getElementById('btn-export-pendientes').disabled = pendientesCount === 0;
 
-    // Reset pagination records
     state.pagination.all.records = state.results.all; state.pagination.all.page = 1;
     state.pagination.cohorte.records = state.results.cohorte; state.pagination.cohorte.page = 1;
     state.pagination.fuera.records = state.results.fuera; state.pagination.fuera.page = 1;
@@ -389,7 +429,6 @@ function updateDemandaResultsUI() {
     renderCharts(cohorteCount, fueraCount, pendientesCount);
 }
 
-// Render Any Tab's Paginated Table
 function renderTabTable(tabKey) {
     const tableBodyId = tabKey === 'all' ? 'table-body' : `table-body-${tabKey}`;
     const pageInfoId = tabKey === 'all' ? 'page-info' : `page-info-${tabKey}`;
