@@ -56,7 +56,7 @@
                 <div class="status-indicator online"></div>
                 <div class="status-info">
                     <span class="status-title">Motor Optimizado v3</span>
-                    <span class="status-sub">Soporte Multi-archivo y Carpetas</span>
+                    <span class="status-sub">Soporte Tabulaciones \t y CSV</span>
                 </div>
             </div>
         </aside>
@@ -67,7 +67,7 @@
             <header class="top-header">
                 <div class="header-titles">
                     <h1 id="page-title">Carga de Bases & Cruce de Demanda Inducida</h1>
-                    <p id="page-subtitle">Carga los archivos o carpetas de Población IPS, FEV/RIPS y Nominal EAPB. Puedes subir múltiples archivos simultáneamente.</p>
+                    <p id="page-subtitle">Carga los archivos o carpetas de Población IPS, FEV/RIPS y Nominal EAPB. Soporta archivos CSV, Excel y delimitados por tabulación (\t).</p>
                 </div>
                 <div class="header-actions">
                     <div class="eps-selector-wrapper">
@@ -98,26 +98,26 @@
                             <span class="status-badge status-missing" id="status-poblacion"><i data-lucide="alert-circle"></i> Pendiente</span>
                         </div>
                         <div class="bucket-dropzone" onclick="document.getElementById('file-input-poblacion').click()">
-                            <input type="file" id="file-input-poblacion" accept=".xlsx, .xls, .csv" multiple hidden>
+                            <input type="file" id="file-input-poblacion" accept=".xlsx, .xls, .csv, .tsv, .txt" multiple hidden>
                             <i data-lucide="file-text"></i>
                             <span id="label-poblacion">Arrastrar o hacer clic para subir archivo(s) de Población IPS</span>
                         </div>
                         <div class="bucket-info" id="info-poblacion">Sin registros cargados</div>
                     </div>
 
-                    <!-- Bucket 2: Base FEV / RIPS (Multifile & Folder Support) -->
+                    <!-- Bucket 2: Base FEV / RIPS (Multifile & Tab-delimited Support) -->
                     <div class="bucket-card" id="bucket-fev">
                         <div class="bucket-header">
                             <div class="bucket-icon blue"><i data-lucide="file-spreadsheet"></i></div>
                             <div class="bucket-title">
-                                <h3>2. Base FEV / RIPS (Carpetas o Archivos)</h3>
+                                <h3>2. Base FEV / RIPS (Carpetas, CSV o Tabulados)</h3>
                             </div>
                             <span class="status-badge status-missing" id="status-fev"><i data-lucide="alert-circle"></i> Pendiente</span>
                         </div>
                         <div class="bucket-dropzone" onclick="document.getElementById('file-input-fev').click()">
-                            <input type="file" id="file-input-fev" accept=".xlsx, .xls, .csv" multiple hidden>
+                            <input type="file" id="file-input-fev" accept=".xlsx, .xls, .csv, .tsv, .txt" multiple hidden>
                             <i data-lucide="folder-search"></i>
-                            <span id="label-fev">Arrastrar carpeta o seleccionar varios FEV (.csv, .xlsx)</span>
+                            <span id="label-fev">Arrastrar carpeta o seleccionar FEV (.csv, .txt, .tsv, .xlsx)</span>
                         </div>
                         <div class="bucket-info" id="info-fev">Sin atenciones cargadas</div>
                     </div>
@@ -132,7 +132,7 @@
                             <span class="status-badge status-missing" id="status-nominal"><i data-lucide="alert-circle"></i> Pendiente</span>
                         </div>
                         <div class="bucket-dropzone" onclick="document.getElementById('file-input-nominal').click()">
-                            <input type="file" id="file-input-nominal" accept=".xlsx, .xls, .csv" multiple hidden>
+                            <input type="file" id="file-input-nominal" accept=".xlsx, .xls, .csv, .tsv, .txt" multiple hidden>
                             <i data-lucide="database"></i>
                             <span id="label-nominal">Arrastrar o hacer clic para subir Nominal EAPB</span>
                         </div>
@@ -154,7 +154,7 @@
                 <div id="loader" class="loader-overlay hidden">
                     <div class="spinner"></div>
                     <h4 id="loader-message">Procesando y leyendo todos los registros...</h4>
-                    <p id="loader-sub">Leyendo archivos CSV / Excel en segundo plano...</p>
+                    <p id="loader-sub">Leyendo archivos en segundo plano (CSV, Excel y Tabulaciones)...</p>
                 </div>
 
                 <!-- KPI Cards Grid -->

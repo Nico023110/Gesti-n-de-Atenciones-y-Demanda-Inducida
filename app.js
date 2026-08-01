@@ -6,12 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // App State
 const state = {
-    poblacionFiles: [], // Array of { name, rows }
-    fevFiles: [],       // Array of { name, rows }
-    nominalFiles: [],   // Array of { name, rows }
-    poblacionRows: [],  // Concatenated 100% real rows
-    fevRows: [],        // Concatenated 100% real rows
-    nominalRows: [],    // Concatenated 100% real rows
+    poblacionFiles: [],
+    fevFiles: [],
+    nominalFiles: [],
+    poblacionRows: [],
+    fevRows: [],
+    nominalRows: [],
     results: {
         all: [],
         cohorte: [],
@@ -44,7 +44,7 @@ function initApp() {
         });
     });
 
-    // Individual Bucket Dropzones for the 3 Categories (Supports Folders & Multiple Files)
+    // Individual Bucket Dropzones for the 3 Categories (Supports CSV, XLSX, TSV, TXT tab-delimited files & folders)
     setupDropzone('bucket-poblacion', 'file-input-poblacion', (files) => handleBucketFiles(files, 'poblacion'));
     setupDropzone('bucket-fev', 'file-input-fev', (files) => handleBucketFiles(files, 'fev'));
     setupDropzone('bucket-nominal', 'file-input-nominal', (files) => handleBucketFiles(files, 'nominal'));
@@ -96,11 +96,14 @@ function setupDropzone(elementId, inputId, onFilesSelected) {
 async function handleBucketFiles(files, bucketType) {
     if (!files || !files.length) return;
     
-    // Filter out directories or zero-byte files if any
-    const validFiles = files.filter(f => f.name.endsWith('.csv') || f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+    // Filter valid text / csv / excel / tsv extensions
+    const validFiles = files.filter(f => {
+        const ext = f.name.toLowerCase();
+        return ext.endsWith('.csv') || ext.endsWith('.xlsx') || ext.endsWith('.xls') || ext.endsWith('.tsv') || ext.endsWith('.txt');
+    });
     
     if (!validFiles.length) {
-        alert('Por favor selecciona archivos válidos en formato CSV (.csv) o Excel (.xlsx, .xls).');
+        alert('Por favor selecciona archivos válidos en formato CSV (.csv), Tabulado (.txt, .tsv) o Excel (.xlsx, .xls).');
         return;
     }
 
@@ -140,20 +143,13 @@ async function handleBucketFiles(files, bucketType) {
     checkCanRun();
 }
 
-// Fast Optimized File Parsing for CSV & XLSX
+// Optimized File Parsing supporting Excel (.xlsx, .xls) and Delimited Text (.csv, .tsv, .txt)
 function parseFileRows(file) {
     return new Promise((resolve) => {
+        const ext = file.name.toLowerCase();
         const reader = new FileReader();
 
-        if (file.name.toLowerCase().endsWith('.csv')) {
-            reader.onload = (e) => {
-                const text = e.target.result;
-                const rows = parseCSVText(text);
-                resolve(rows);
-            };
-            // Try reading CSV as UTF-8
-            reader.readAsText(file, 'UTF-8');
-        } else {
+        if (ext.endsWith('.xlsx') || ext.endsWith('.xls')) {
             reader.onload = (e) => {
                 try {
                     const data = new Uint8Array(e.target.result);
@@ -166,20 +162,42 @@ function parseFileRows(file) {
                 }
             };
             reader.readAsArrayBuffer(file);
+        } else {
+            // Text-based files (.csv, .tsv, .txt)
+            reader.onload = (e) => {
+                const text = e.target.result;
+                const rows = parseCSVText(text);
+                resolve(rows);
+            };
+            reader.readAsText(file, 'UTF-8');
         }
     });
 }
 
-// Optimized Robust CSV Parser supporting ';' and ',' delimiters
+// Multi-Delimiter CSV/TSV Parser: Auto-detects Tab (\t), Semicolon (;), Comma (,), Pipe (|)
 function parseCSVText(text) {
     if (!text || !text.trim()) return [];
 
     const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
     if (lines.length < 2) return [];
 
-    // Detect delimiter ';' or ','
     const firstLine = lines[0];
-    const delimiter = (firstLine.match(/;/g) || []).length >= (firstLine.match(/,/g) || []).length ? ';' : ',';
+    
+    // Count candidate delimiters in header line
+    const tabCount = (firstLine.match(/\t/g) || []).length;
+    const semiCount = (firstLine.match(/;/g) || []).length;
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const pipeCount = (firstLine.match(/\|/g) || []).length;
+
+    let delimiter = ',';
+    const maxCount = Math.max(tabCount, semiCount, commaCount, pipeCount);
+
+    if (maxCount > 0) {
+        if (maxCount === tabCount) delimiter = '\t';
+        else if (maxCount === semiCount) delimiter = ';';
+        else if (maxCount === pipeCount) delimiter = '|';
+        else delimiter = ',';
+    }
 
     const headers = firstLine.split(delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
 
