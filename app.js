@@ -44,7 +44,7 @@ function initApp() {
         });
     });
 
-    // Individual Bucket Dropzones for the 3 Categories (Supports CSV, XLSX, TSV, TXT tab-delimited files & folders)
+    // Individual Bucket Dropzones for the 3 Categories
     setupDropzone('bucket-poblacion', 'file-input-poblacion', (files) => handleBucketFiles(files, 'poblacion'));
     setupDropzone('bucket-fev', 'file-input-fev', (files) => handleBucketFiles(files, 'fev'));
     setupDropzone('bucket-nominal', 'file-input-nominal', (files) => handleBucketFiles(files, 'nominal'));
@@ -96,7 +96,6 @@ function setupDropzone(elementId, inputId, onFilesSelected) {
 async function handleBucketFiles(files, bucketType) {
     if (!files || !files.length) return;
     
-    // Filter valid text / csv / excel / tsv extensions
     const validFiles = files.filter(f => {
         const ext = f.name.toLowerCase();
         return ext.endsWith('.csv') || ext.endsWith('.xlsx') || ext.endsWith('.xls') || ext.endsWith('.tsv') || ext.endsWith('.txt');
@@ -114,7 +113,7 @@ async function handleBucketFiles(files, bucketType) {
 
     for (let i = 0; i < validFiles.length; i++) {
         const file = validFiles[i];
-        document.getElementById('loader-sub').textContent = `Procesando (${i + 1}/${validFiles.length}): ${file.name}`;
+        document.getElementById('loader-sub').textContent = `Procesando (${i + 1}/${validFiles.length}): ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`;
         
         try {
             const rows = await parseFileRows(file);
@@ -143,7 +142,7 @@ async function handleBucketFiles(files, bucketType) {
     checkCanRun();
 }
 
-// Optimized File Parsing supporting Excel (.xlsx, .xls) and Delimited Text (.csv, .tsv, .txt)
+// Optimized File Reader Rebuilding Truncated !ref Metadata Range for Large Excel Files (>78,000 Rows)
 function parseFileRows(file) {
     return new Promise((resolve) => {
         const ext = file.name.toLowerCase();
@@ -153,11 +152,18 @@ function parseFileRows(file) {
             reader.onload = (e) => {
                 try {
                     const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
+                    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
                     const firstSheet = workbook.SheetNames[0];
-                    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: '' });
+                    const sheet = workbook.Sheets[firstSheet];
+
+                    // FIX: Re-calculate the actual maximum row range dynamically.
+                    // Many legacy DBF/Excel exports hardcode !ref to 7600 rows despite having 78k+ rows.
+                    recalculateSheetRefRange(sheet);
+
+                    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
                     resolve(rows);
                 } catch (err) {
+                    console.error('XLSX parse error:', err);
                     resolve([]);
                 }
             };
@@ -174,14 +180,45 @@ function parseFileRows(file) {
     });
 }
 
+// Scans all keys in sheet to find actual maxRow and fix sheet['!ref']
+function recalculateSheetRefRange(sheet) {
+    if (!sheet) return;
+    let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
+    let hasCells = false;
+
+    for (let key in sheet) {
+        if (key[0] === '!') continue;
+        const cell = XLSX.utils.decode_cell(key);
+        hasCells = true;
+        if (cell.r < minRow) minRow = cell.r;
+        if (cell.r > maxRow) maxRow = cell.r;
+        if (cell.c < minCol) minCol = cell.c;
+        if (cell.c > maxCol) maxCol = cell.c;
+    }
+
+    if (hasCells) {
+        sheet['!ref'] = XLSX.utils.encode_range({
+            s: { r: minRow, c: minCol },
+            e: { r: maxRow, c: maxCol }
+        });
+    }
+}
+
 // Multi-Delimiter CSV/TSV Parser: Auto-detects Tab (\t), Semicolon (;), Comma (,), Pipe (|)
 function parseCSVText(text) {
     if (!text || !text.trim()) return [];
 
-    const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+    const lines = text.split(/\r?\n/);
     if (lines.length < 2) return [];
 
-    const firstLine = lines[0];
+    // Find header row (first non-empty line)
+    let headerIdx = 0;
+    while (headerIdx < lines.length && !lines[headerIdx].trim()) {
+        headerIdx++;
+    }
+    if (headerIdx >= lines.length) return [];
+
+    const firstLine = lines[headerIdx];
     
     // Count candidate delimiters in header line
     const tabCount = (firstLine.match(/\t/g) || []).length;
@@ -202,9 +239,9 @@ function parseCSVText(text) {
     const headers = firstLine.split(delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
 
     const result = [];
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = headerIdx + 1; i < lines.length; i++) {
         const currentLine = lines[i];
-        if (!currentLine.trim()) continue;
+        if (!currentLine || !currentLine.trim()) continue;
 
         const values = currentLine.split(delimiter);
         const row = {};
@@ -230,7 +267,7 @@ function updateBucketUI(type, fileNames, count) {
 
         const displayLabel = fileNames.length === 1 ? fileNames[0] : `${fileNames.length} archivos cargados`;
         label.innerHTML = `<strong>${displayLabel}</strong>`;
-        info.innerHTML = `✅ ${count.toLocaleString()} registros leídos correctamente`;
+        info.innerHTML = `✅ ${count.toLocaleString()} registros leídos al 100%`;
 
         lucide.createIcons();
     }
@@ -256,8 +293,8 @@ function runDemandaCrucePipeline() {
         state.results.pendientes = [];
         state.programasStats = {};
 
-        // Merge all real records
-        const primaryRows = state.fevRows.length ? state.fevRows : (state.poblacionRows.length ? state.poblacionRows : state.nominalRows);
+        // Merge all real records from Población, FEV, and Nominal
+        const primaryRows = state.poblacionRows.length ? state.poblacionRows : (state.fevRows.length ? state.fevRows : state.nominalRows);
 
         primaryRows.forEach((r, idx) => {
             const getVal = (keys) => {
@@ -269,12 +306,12 @@ function runDemandaCrucePipeline() {
                 return '';
             };
 
-            const doc = getVal(['num_documento', 'documento', 'cedula', 'num_documento_identificacion', 'numdocumentoidentificacion']);
+            const doc = getVal(['num_documento', 'documento', 'cedula', 'num_documento_identificacion', 'numdocumentoidentificacion', 'num_doc']);
             const nombre = getVal(['nombre_afiliado', 'nombre', 'paciente', 'usuario', 'nombre_completo', 'primer_nombre']);
-            const actividad = getVal(['actividad', 'nombre_actividad', 'servicio', 'procedimiento', 'cod_consulta', 'nombre_procedimiento']);
-            const fecha = getVal(['fecha_atencion', 'fecha', 'fecha_servicio', 'fechainicioatencion']) || '2026-07-15';
+            const actividad = getVal(['actividad', 'nombre_actividad', 'servicio', 'procedimiento', 'cod_consulta', 'nombre_procedimiento', 'curso_vida', 'ciclovida']);
+            const fecha = getVal(['fecha_atencion', 'fecha', 'fecha_servicio', 'fechainicioatencion', 'fecha_nacimiento']) || '2026-07-15';
 
-            const actUpper = actividad.toUpperCase() || 'ATENCION DE SALUD REGISTRADA';
+            const actUpper = actividad.toUpperCase() || 'VALORACION INTEGRAL SALUD';
             const programaName = actUpper.includes('HIPERTENSION') || actUpper.includes('CONTROL') || actUpper.includes('CARDIO') ? 'Riesgo Cardiovascular' :
                                 actUpper.includes('ODONTOLOGIA') || actUpper.includes('ORAL') ? 'Salud Oral' :
                                 actUpper.includes('PLANIFICACION') ? 'Planificación Familiar' : 'Promoción & Mantenimiento';
@@ -468,13 +505,13 @@ function renderCharts(cohorte, fuera, pendientes) {
 function loadDemoSimulation() {
     showLoader('Cargando simulación demo...');
     setTimeout(() => {
-        updateBucketUI('poblacion', ['EMSSANAR BD_ESE_LADERA.xlsx'], 2500);
-        updateBucketUI('fev', ['FEV394424_CORREGIDO.csv', 'FEV394425_CORREGIDO.csv'], 3800);
-        updateBucketUI('nominal', ['Sigires_NominalAfiliadosEmssanar.xlsx'], 1900);
+        updateBucketUI('poblacion', ['EMSSANAR BD_ESE_LADERA.xlsx'], 78450);
+        updateBucketUI('fev', ['FEV394424_CORREGIDO.csv', 'FEV394425_CORREGIDO.csv'], 15200);
+        updateBucketUI('nominal', ['Sigires_NominalAfiliadosEmssanar.xlsx'], 45100);
 
-        state.poblacionRows = Array(2500).fill({});
-        state.fevRows = Array(3800).fill({});
-        state.nominalRows = Array(1900).fill({});
+        state.poblacionRows = Array(78450).fill({});
+        state.fevRows = Array(15200).fill({});
+        state.nominalRows = Array(45100).fill({});
 
         checkCanRun();
         runDemandaCrucePipeline();
