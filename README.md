@@ -1,47 +1,46 @@
-# Gestión de Atenciones y Demanda Inducida
+# Plataforma Web RFAST & Gestión de Demanda Inducida
 
-Sistema de procesamiento, cruce y análisis de población de afiliados de salud contra bases nominales y de atenciones (FEV) para la gestión de demanda inducida por EPS (Coosalud, Emssanar, Nueva EPS, SOS, etc.).
+Sistema web interactivo y motor de auditoría de inconsistencias RIPS, atenciones de salud y demanda inducida para EPS y la ESE Ladera.
+
+🌐 **Despliegue en Vercel**: [gesti-n-de-atenciones-y-demanda-ind.vercel.app](https://gesti-n-de-atenciones-y-demanda-ind.vercel.app/)
+
+## 🚀 Características Principales
+
+* **Interfaz Web en Vercel**: Carga de archivos Excel (`.xlsx`, `.csv`) directamente desde el navegador sin instalación previa.
+* **Motor RFAST de 7 Validaciones**: Detección automática de errores en Causa Externa, Finalidad RIPS, Odontología, Planificación Familiar, Detección Temprana y Educación Individual.
+* **Tableros e Indicadores KPI**: Métricas en tiempo real, gráficos de dona y barras por regla y por zona operativa.
+* **Agrupación por Zonas Comunas y Rurales**: Clasificación automática en Comunas 01, 03, 17, 18, 20, Zona Rural Norte y Zona Rural Sur.
+* **Exportación a Excel Formateado**: Generación de reportes Excel con celdas resaltadas en rojo y amarillo.
+* **Soporte CLI / Consola Python**: Mantiene los scripts originales de consola en la carpeta `scripts/`.
 
 ## 📁 Estructura del Proyecto
 
 ```
 Proyecto_Poblacion/
+├── index.html                    # Aplicación Web principal (HTML5 + Lucide + Chart.js)
+├── styles.css                    # Sistema de diseño moderno (Glassmorphism & Dark Mode)
+├── app.js                        # Motor de auditoría y lógica cliente en JavaScript/SheetJS
+├── vercel.json                   # Configuración para despliegue automatizado en Vercel
 ├── config/
-│   └── config.py                 # Configuración de rutas estáticas y dinámicas por EPS y periodo
+│   └── config.py                 # Configuración Python
 ├── datos/
-│   ├── catalogos/                # Reglas de actividades y catálogos de cruce
-│   ├── fev/                      # Archivos FEV (Facturación / Atenciones)
-│   └── Historial/                # Nominal acumulada e histórico de afiliados
-├── logs/                         # Registros de ejecución
-└── scripts/
-    ├── main.py                   # Script principal de ejecución del pipeline
-    ├── cargar_poblacion.py       # Carga y estructuración de base poblacional por EPS
-    ├── cargar_fev.py             # Carga y procesamiento de atenciones FEV
-    ├── cargar_nominal.py         # Carga de archivos nominales de afiliados
-    ├── actualizar_nominal.py     # Actualización de bases nominales históricas
-    ├── cruzar_poblacion.py       # Algoritmos de cruce poblacional vs atenciones
-    ├── motor_reglas.py           # Motor de validación y reglas de negocio
-    ├── formatear_excel.py        # Generación de reportes finales en Excel formateados
-    ├── normalizar_columnas.py    # Limpieza y estandarización de nombres de campos
-    └── utilidades.py             # Funciones auxiliares de soporte
+│   └── catalogos/                # Reglas y catálogos
+└── scripts/                      # Scripts originales de consola Python
+    ├── main.py
+    ├── cruzar_poblacion.py
+    └── motor_reglas.py
 ```
 
-## 🚀 Requisitos e Instalación
+## ⚙️ Uso Local
 
-### Requisitos
-* Python 3.8+
-
-### Librerías Necesarias
+### Servidor Web Local
+Puedes abrir directamente el archivo `index.html` en tu navegador o servirlo con Python:
 ```bash
-pip install pandas openpyxl numpy
+python -m http.server 8000
 ```
+Luego navega a `http://localhost:8000`.
 
-## ⚙️ Ejecución
-
-Para iniciar el proceso interactivo de consolidación y demanda inducida:
-
+### Consola Python CLI
 ```bash
 python scripts/main.py
 ```
-
-El script solicitará seleccionar el mes/periodo y la EPS correspondiente a procesar, ejecutando el flujo completo de validación, cruce y exportación de salida.

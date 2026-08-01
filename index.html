@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma RFAST & Demanda Inducida - Análisis de Salud</title>
+    <meta name="description" content="Sistema de auditoría de inconsistencias RIPS, validación de atenciones y gestión de demanda inducida en salud.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS (xlsx) & ExcelJS -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo-icon">
+                    <i data-lucide="activity"></i>
+                </div>
+                <div class="brand-text">
+                    <h2>RFAST <span>Analytics</span></h2>
+                    <p>Gestión & Auditoría Salud</p>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-tab="dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Panel Principal</span>
+                </button>
+                <button class="nav-btn" data-tab="inconsistencias">
+                    <i data-lucide="file-warning"></i>
+                    <span>Inconsistencias RFAST</span>
+                </button>
+                <button class="nav-btn" data-tab="demanda">
+                    <i data-lucide="users"></i>
+                    <span>Demanda Inducida</span>
+                </button>
+                <button class="nav-btn" data-tab="reglas">
+                    <i data-lucide="shield-check"></i>
+                    <span>Reglas & Catálogos</span>
+                </button>
+            </nav>
+
+            <div class="system-status">
+                <div class="status-indicator online"></div>
+                <div class="status-info">
+                    <span class="status-title">Motor Operativo</span>
+                    <span class="status-sub">Vercel Cloud System</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header Banner -->
+            <header class="top-header">
+                <div class="header-titles">
+                    <h1 id="page-title">Panel de Auditoría & Gestión de Atenciones</h1>
+                    <p id="page-subtitle">Carga tus archivos Excel de RIPS o Población para ejecutar el motor de análisis en tiempo real.</p>
+                </div>
+                <div class="header-actions">
+                    <div class="eps-selector-wrapper">
+                        <label for="eps-select"><i data-lucide="building-2"></i> EAPB / EPS:</label>
+                        <select id="eps-select" class="custom-select">
+                            <option value="TODAS">Todas las EPS</option>
+                            <option value="EMSSANAR">EMSSANAR</option>
+                            <option value="COOSALUD">COOSALUD</option>
+                            <option value="NUEVA_EPS">NUEVA EPS</option>
+                            <option value="SOS">SOS</option>
+                            <option value="ASMET">ASMET SALUD</option>
+                        </select>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <div id="tab-dashboard" class="tab-content active">
+                <!-- Dropzone Area -->
+                <section class="upload-section">
+                    <div class="dropzone" id="dropzone">
+                        <input type="file" id="file-input" accept=".xlsx, .xls, .csv" multiple hidden>
+                        <div class="dropzone-content">
+                            <div class="upload-icon-wrapper">
+                                <i data-lucide="upload-cloud"></i>
+                            </div>
+                            <h3>Arrastra y suelta tu archivo Excel o CSV aquí</h3>
+                            <p>Soporta archivos de RIPS, Listados de Actividades, FEV y Población Nominal (`.xlsx`, `.csv`)</p>
+                            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                                <i data-lucide="folder-open"></i> Seleccionar Archivo
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Sample Data Launcher -->
+                    <div class="sample-actions">
+                        <span class="text-muted">¿Quieres probar rápido?</span>
+                        <button class="btn btn-secondary btn-sm" id="btn-load-demo-rfast">
+                            <i data-lucide="sparkles"></i> Cargar Datos Demo RFAST
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="btn-load-demo-poblacion">
+                            <i data-lucide="database"></i> Cargar Datos Demo Población
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Processing Loader -->
+                <div id="loader" class="loader-overlay hidden">
+                    <div class="spinner"></div>
+                    <h4 id="loader-message">Procesando y validando reglas de negocio...</h4>
+                    <p>Aplicando algoritmos RFAST y cruces poblacionales</p>
+                </div>
+
+                <!-- KPI Cards Grid -->
+                <section class="kpi-grid">
+                    <div class="kpi-card blue">
+                        <div class="kpi-icon"><i data-lucide="file-text"></i></div>
+                        <div class="kpi-data">
+                            <span class="kpi-label">Total Registros Auditados</span>
+                            <h3 id="kpi-total">0</h3>
+                            <span class="kpi-foot" id="kpi-total-sub">Sin archivo cargado</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card red">
+                        <div class="kpi-icon"><i data-lucide="alert-triangle"></i></div>
+                        <div class="kpi-data">
+                            <span class="kpi-label">Inconsistencias Detectadas</span>
+                            <h3 id="kpi-inconsistencias">0</h3>
+                            <span class="kpi-foot" id="kpi-inconsistencias-sub">0% del total</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card green">
+                        <div class="kpi-icon"><i data-lucide="check-circle-2"></i></div>
+                        <div class="kpi-data">
+                            <span class="kpi-label">Registros Conformes</span>
+                            <h3 id="kpi-conformes">0</h3>
+                            <span class="kpi-foot" id="kpi-conformes-sub">0% limpios</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card purple">
+                        <div class="kpi-icon"><i data-lucide="map-pin"></i></div>
+                        <div class="kpi-data">
+                            <span class="kpi-label">Sedes / Zonas Auditadas</span>
+                            <h3 id="kpi-zonas">0</h3>
+                            <span class="kpi-foot">Comunas 01-20 & Rural</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Charts Section -->
+                <section class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i data-lucide="pie-chart"></i> Inconsistencias por Tipo de Regla</h3>
+                        </div>
+                        <div class="chart-body">
+                            <canvas id="chart-reglas"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i data-lucide="bar-chart-3"></i> Distribución por Zonas Operativas</h3>
+                        </div>
+                        <div class="chart-body">
+                            <canvas id="chart-zonas"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Table Preview Section -->
+                <section class="results-section">
+                    <div class="results-header">
+                        <div class="results-title">
+                            <h3><i data-lucide="table"></i> Detalle de Registros con Inconsistencias</h3>
+                            <span class="badge badge-danger" id="badge-count">0 errores</span>
+                        </div>
+                        <div class="results-controls">
+                            <div class="search-box">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="search-input" placeholder="Buscar por documento, código, sede...">
+                            </div>
+                            <button class="btn btn-success" id="btn-export-excel" disabled>
+                                <i data-lucide="download"></i> Descargar Excel Formateado
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="data-table" id="table-results">
+                            <thead>
+                                <tr id="table-head-row">
+                                    <th>CÓDIGO</th>
+                                    <th>ACTIVIDAD / NOMBRE</th>
+                                    <th>FINALIDAD</th>
+                                    <th>CAUSA EXT</th>
+                                    <th>SEDE / IPS PRESTADOR</th>
+                                    <th>DOCUMENTO</th>
+                                    <th>FACTURA</th>
+                                    <th>INCONSISTENCIA DETECTADA</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body">
+                                <tr>
+                                    <td colspan="8" class="empty-table-msg">
+                                        <i data-lucide="folder-input"></i>
+                                        <p>No hay datos procesados. Por favor arrastra un archivo Excel o usa los datos de demostración.</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Inconsistencias Tab -->
+            <div id="tab-inconsistencias" class="tab-content hidden">
+                <div class="info-card">
+                    <h2><i data-lucide="file-warning"></i> Motor RFAST - Reglas Auditadas</h2>
+                    <p>Resumen de las 7 validaciones automáticas de consistencia clínica y normativa RIPS:</p>
+                    <div class="rules-list">
+                        <div class="rule-item">
+                            <span class="rule-num">01</span>
+                            <div>
+                                <h4>Causa Externa Incorrecta en PyM</h4>
+                                <p>Causa externa `38` en consultas de PyM (Curso de Vida / Planificación) debe corregirse a `40` (Promoción y Mantenimiento).</p>
+                            </div>
+                        </div>
+                        <div class="rule-item">
+                            <span class="rule-num">02</span>
+                            <div>
+                                <h4>Finalidad Incorrecta en Programas de Control</h4>
+                                <p>Consultas de seguimiento e hipertensión/diabetes deben registrar finalidad `28` (Tratamiento).</p>
+                            </div>
+                        </div>
+                        <div class="rule-item">
+                            <span class="rule-num">03</span>
+                            <div>
+                                <h4>Finalidad en Consultas de Primera Vez</h4>
+                                <p>Las valoraciones de primera vez deben marcarse con finalidad `27` (Diagnóstico).</p>
+                            </div>
+                        </div>
+                        <div class="rule-item">
+                            <span class="rule-num">04</span>
+                            <div>
+                                <h4>Controles de Odontología</h4>
+                                <p>Continuidad del plan de manejo odontológico requiere finalidad `28` (Tratamiento).</p>
+                            </div>
+                        </div>
+                        <div class="rule-item">
+                            <span class="rule-num">05</span>
+                            <div>
+                                <h4>Planificación Familiar</h4>
+                                <p>Atención de ingreso en planificación requiere finalidad `31` y causa externa `40` (PYP PF).</p>
+                            </div>
+                        </div>
+                        <div class="rule-item">
+                            <span class="rule-num">06</span>
+                            <div>
+                                <h4>Detección Temprana</h4>
+                                <p>Detección de cáncer y tamizajes requieren finalidad `24` (Detección temprana).</p>
+                            </div>
+                        </div>
+                        <div class="rule-item">
+                            <span class="rule-num">07</span>
+                            <div>
+                                <h4>Educación Individual</h4>
+                                <p>Actividades educativas de promoción deben ubicarse en finalidades de Promoción de la Salud (`40`-`54`).</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Demanda Inducida Tab -->
+            <div id="tab-demanda" class="tab-content hidden">
+                <div class="info-card">
+                    <h2><i data-lucide="users"></i> Módulo de Demanda Inducida & Población</h2>
+                    <p>Permite cruzar bases nominales de afiliados por EPS contra facturación FEV y metas de cohorte.</p>
+                    <div class="eps-grid">
+                        <div class="eps-card">
+                            <h3>EMSSANAR</h3>
+                            <p>Cruce de atenciones pendientes vs realizadas en cohorte de salud de la ESE Ladera.</p>
+                        </div>
+                        <div class="eps-card">
+                            <h3>COOSALUD</h3>
+                            <p>Identificación de demanda faltante por grupo etario y centro de salud.</p>
+                        </div>
+                        <div class="eps-card">
+                            <h3>NUEVA EPS</h3>
+                            <p>Monitoreo nominal de actividades de protección específica y detección temprana.</p>
+                        </div>
+                        <div class="eps-card">
+                            <h3>SOS</h3>
+                            <p>Seguimiento de citas y controles de hipertensión, diabetes y gestantes.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reglas Tab -->
+            <div id="tab-reglas" class="tab-content hidden">
+                <div class="info-card">
+                    <h2><i data-lucide="shield-check"></i> Diccionario de Zonas y Sedes IPS</h2>
+                    <p>Agrupamiento territorial oficial para distribución de reportes:</p>
+                    <table class="zones-table">
+                        <thead>
+                            <tr>
+                                <th>ZONA</th>
+                                <th>SEDES INCLUIDAS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>ZonaComuna-01</strong></td>
+                                <td>C.S. Terrón Colorado, P.S. Bellavista, P.S. Vistahermosa, P.S. La Paz</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ZonaComuna-03</strong></td>
+                                <td>P.S. Fray Damián, Hospital Cañaveralejo</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ZonaComuna-17</strong></td>
+                                <td>C.S. Primero de Mayo</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ZonaComuna-18</strong></td>
+                                <td>C.S. Meléndez, P.S. Alto Polvorines, P.S. Alto Nápoles, P.S. Nápoles, P.S. Polvorines, P.S. Lourdes</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ZonaComuna-20</strong></td>
+                                <td>C.S. Siloé, P.S. Belén, P.S. Brisas de Mayo, P.S. La Estrella, P.S. La Sirena, P.S. La Sultana</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ZonaRuralNorte</strong></td>
+                                <td>Montebello, El Saladito, La Elvira, Felidia, Peñas Blancas, Pichindé, Golondrinas, La Leonera, La Castilla, Los Andes</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ZonaRuralSur</strong></td>
+                                <td>La Buitrera, Villacarmelo, Pance, La Vorágine, El Hormiguero, Cascajal</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Script App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
