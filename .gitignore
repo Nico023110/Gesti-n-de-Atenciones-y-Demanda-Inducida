@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE & Editor
+.spyproject/
+.vscode/
+.idea/
+
+# Private patient & population data files
+datos/2026_*/*
+!datos/2026_06/.gitkeep
+!datos/2026_07/.gitkeep
+datos/Historial/*
+!datos/Historial/.gitkeep
+datos/fev/*
+!datos/fev/.gitkeep
+
+# Logs
+logs/*.log
+
+# Environment
+.env
+.venv
+env/
+venv/
