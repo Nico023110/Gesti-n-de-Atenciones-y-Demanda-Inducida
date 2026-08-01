@@ -118,7 +118,7 @@ async function handleBucketFiles(files, bucketType) {
 
     for (let i = 0; i < validFiles.length; i++) {
         const file = validFiles[i];
-        document.getElementById('loader-sub').textContent = `Procesando (${i + 1}/${validFiles.length}): ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`;
+        document.getElementById('loader-sub').textContent = `Procesando (${i + 1}/${validFiles.length}): ${file.name}...`;
         
         try {
             const rows = await parseFileRows(file);
@@ -147,7 +147,7 @@ async function handleBucketFiles(files, bucketType) {
     checkCanRun();
 }
 
-// 🚀 ALL-WORKSHEETS MULTI-TAB PARSER: Iterates over ALL worksheets in the Excel file to read 100% of rows
+// 🎯 TARGETED SHEET PARSER: Specifically matches sheet "sladera afiliados" or "sladera", or picks the worksheet with maximum rows
 async function parseFileRows(file) {
     const ext = file.name.toLowerCase();
 
@@ -157,54 +157,44 @@ async function parseFileRows(file) {
             const workbook = new ExcelJS.Workbook();
             await workbook.xlsx.load(arrayBuffer);
             
-            let allRows = [];
-            
-            // Loop through ALL worksheets in the workbook (e.g. multiple tabs for IPS centers, communes, or cohorts)
-            workbook.worksheets.forEach(worksheet => {
-                if (!worksheet || worksheet.rowCount <= 1) return;
-                
-                const headers = [];
-                let headerParsed = false;
-                
-                worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-                    const values = row.values;
-                    if (!headerParsed) {
-                        for (let i = 1; i < values.length; i++) {
-                            headers.push(values[i] ? values[i].toString().trim() : `Col_${i}`);
-                        }
-                        headerParsed = true;
-                    } else {
-                        const rowObj = {};
-                        let hasData = false;
-                        for (let i = 1; i <= headers.length; i++) {
-                            const header = headers[i - 1];
-                            let val = values[i];
-                            
-                            if (val !== null && val !== undefined) {
-                                if (val.richText) {
-                                    val = val.richText.map(rt => rt.text).join('');
-                                } else if (val instanceof Date) {
-                                    val = val.toISOString().slice(0, 10);
-                                } else if (typeof val === 'object' && val.result !== undefined) {
-                                    val = val.result;
-                                }
-                                val = val.toString().trim();
-                                if (val) hasData = true;
-                                rowObj[header] = val;
-                            } else {
-                                rowObj[header] = '';
-                            }
-                        }
-                        if (hasData) {
-                            allRows.push(rowObj);
-                        }
-                    }
-                });
+            let targetSheet = null;
+
+            // 1. Search for "sladera afiliados", "sladera", or "ladera afiliados"
+            workbook.worksheets.forEach(ws => {
+                if (!ws || !ws.name) return;
+                const nameLower = ws.name.trim().toLowerCase();
+                if (nameLower.includes('sladera') || nameLower.includes('ladera afiliados') || nameLower.includes('sladera afiliados')) {
+                    targetSheet = ws;
+                }
             });
 
-            if (allRows.length > 0) return allRows;
+            // 2. Secondary search for "afiliados" or "poblacion"
+            if (!targetSheet) {
+                workbook.worksheets.forEach(ws => {
+                    if (!ws || !ws.name) return;
+                    const nameLower = ws.name.trim().toLowerCase();
+                    if (nameLower.includes('afiliado') || nameLower.includes('poblacion') || nameLower.includes('base')) {
+                        targetSheet = ws;
+                    }
+                });
+            }
 
-            // Fallback to SheetJS multi-sheet reader if ExcelJS returned empty
+            // 3. Fallback: Pick the worksheet with the MAXIMUM number of rows in the workbook
+            if (!targetSheet) {
+                let maxRows = -1;
+                workbook.worksheets.forEach(ws => {
+                    if (ws && ws.rowCount > maxRows) {
+                        maxRows = ws.rowCount;
+                        targetSheet = ws;
+                    }
+                });
+            }
+
+            if (!targetSheet) return [];
+
+            const rows = extractRowsFromExcelJSWorksheet(targetSheet);
+            if (rows.length > 0) return rows;
+
             return parseWithSheetJS(file);
         } catch (err) {
             console.error('ExcelJS parse error, falling back to SheetJS:', err);
@@ -213,7 +203,6 @@ async function parseFileRows(file) {
     } else if (ext.endsWith('.xls')) {
         return parseWithSheetJS(file);
     } else {
-        // Text-based files (.csv, .tsv, .txt)
         const text = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = e => resolve(e.target.result);
@@ -224,7 +213,48 @@ async function parseFileRows(file) {
     }
 }
 
-// Multi-Sheet SheetJS Fallback Reader
+function extractRowsFromExcelJSWorksheet(worksheet) {
+    const rows = [];
+    const headers = [];
+    let headerParsed = false;
+
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        const values = row.values;
+        if (!headerParsed) {
+            for (let i = 1; i < values.length; i++) {
+                headers.push(values[i] ? values[i].toString().trim() : `Col_${i}`);
+            }
+            headerParsed = true;
+        } else {
+            const rowObj = {};
+            let hasData = false;
+            for (let i = 1; i <= headers.length; i++) {
+                const header = headers[i - 1];
+                let val = values[i];
+                
+                if (val !== null && val !== undefined) {
+                    if (val.richText) {
+                        val = val.richText.map(rt => rt.text).join('');
+                    } else if (val instanceof Date) {
+                        val = val.toISOString().slice(0, 10);
+                    } else if (typeof val === 'object' && val.result !== undefined) {
+                        val = val.result;
+                    }
+                    val = val.toString().trim();
+                    if (val) hasData = true;
+                    rowObj[header] = val;
+                } else {
+                    rowObj[header] = '';
+                }
+            }
+            if (hasData) {
+                rows.push(rowObj);
+            }
+        }
+    });
+    return rows;
+}
+
 function parseWithSheetJS(file) {
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -232,37 +262,64 @@ function parseWithSheetJS(file) {
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                let allRows = [];
+                
+                let targetSheetName = null;
 
-                workbook.SheetNames.forEach(sheetName => {
-                    const sheet = workbook.Sheets[sheetName];
-                    if (!sheet) return;
-
-                    let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
-                    let hasCells = false;
-                    for (let key in sheet) {
-                        if (key[0] === '!') continue;
-                        const cell = XLSX.utils.decode_cell(key);
-                        hasCells = true;
-                        if (cell.r < minRow) minRow = cell.r;
-                        if (cell.r > maxRow) maxRow = cell.r;
-                        if (cell.c < minCol) minCol = cell.c;
-                        if (cell.c > maxCol) maxCol = cell.c;
-                    }
-                    if (hasCells) {
-                        sheet['!ref'] = XLSX.utils.encode_range({
-                            s: { r: minRow, c: minCol },
-                            e: { r: maxRow, c: maxCol }
-                        });
-                    }
-
-                    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-                    if (rows && rows.length) {
-                        allRows = allRows.concat(rows);
+                // 1. Search for "sladera afiliados" or "sladera" or "ladera afiliados"
+                workbook.SheetNames.forEach(sName => {
+                    const nameLower = sName.trim().toLowerCase();
+                    if (nameLower.includes('sladera') || nameLower.includes('ladera afiliados') || nameLower.includes('sladera afiliados')) {
+                        targetSheetName = sName;
                     }
                 });
 
-                resolve(allRows);
+                // 2. Search for "afiliados" or "poblacion"
+                if (!targetSheetName) {
+                    workbook.SheetNames.forEach(sName => {
+                        const nameLower = sName.trim().toLowerCase();
+                        if (nameLower.includes('afiliado') || nameLower.includes('poblacion')) {
+                            targetSheetName = sName;
+                        }
+                    });
+                }
+
+                // 3. Fallback: sheet with maximum cell count
+                if (!targetSheetName) {
+                    let maxCells = -1;
+                    workbook.SheetNames.forEach(sName => {
+                        const sh = workbook.Sheets[sName];
+                        const cellCount = sh ? Object.keys(sh).length : 0;
+                        if (cellCount > maxCells) {
+                            maxCells = cellCount;
+                            targetSheetName = sName;
+                        }
+                    });
+                }
+
+                if (!targetSheetName) targetSheetName = workbook.SheetNames[0];
+
+                const sheet = workbook.Sheets[targetSheetName];
+                
+                let minRow = Infinity, maxRow = 0, minCol = Infinity, maxCol = 0;
+                let hasCells = false;
+                for (let key in sheet) {
+                    if (key[0] === '!') continue;
+                    const cell = XLSX.utils.decode_cell(key);
+                    hasCells = true;
+                    if (cell.r < minRow) minRow = cell.r;
+                    if (cell.r > maxRow) maxRow = cell.r;
+                    if (cell.c < minCol) minCol = cell.c;
+                    if (cell.c > maxCol) maxCol = cell.c;
+                }
+                if (hasCells) {
+                    sheet['!ref'] = XLSX.utils.encode_range({
+                        s: { r: minRow, c: minCol },
+                        e: { r: maxRow, c: maxCol }
+                    });
+                }
+
+                const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+                resolve(rows);
             } catch (err) {
                 console.error('SheetJS parse error:', err);
                 resolve([]);
@@ -423,7 +480,7 @@ function updateDemandaResultsUI() {
     document.getElementById('kpi-fuera').textContent = fueraCount.toLocaleString();
     document.getElementById('kpi-fuera-sub').textContent = totalAll ? `${((fueraCount / totalAll) * 100).toFixed(1)}% atenciones de más` : '0%';
 
-    document.getElementById('kpi-pendientes').textContent = pendientesCount.toLocaleString();
+    document.getElementById('kpi-pendientes').textContent = pendientesCount.textContent = pendientesCount.toLocaleString();
 
     document.getElementById('badge-count').textContent = `${totalAll.toLocaleString()} registros`;
     document.getElementById('badge-count-cohorte').textContent = `${cohorteCount.toLocaleString()} registros`;
